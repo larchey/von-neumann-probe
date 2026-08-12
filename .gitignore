@@ -1,7 +1,26 @@
-/target
+# Rust build artifacts
+/target/
+Cargo.lock
+**/*.rs.bk
+
+# IDE
+.vscode/
+.idea/
 *.swp
 *.swo
 *~
 .DS_Store
-.vscode/
-.idea/
+
+# Game save files
+*.save
+*.json.backup
+
+# Build artifacts
+*.o
+*.a
+*.so
+*.dylib
+
+# Profiling
+*.prof
+*.pprof
