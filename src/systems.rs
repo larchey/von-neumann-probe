@@ -85,6 +85,14 @@ pub fn probe_replication(
 
     for (position, probe_type) in new_probes {
         let probe_id = uuid::Uuid::new_v4();
+        let color = match probe_type {
+            ProbeType::Miner => Color::srgb(0.8, 0.6, 0.2),
+            ProbeType::Scout => Color::srgb(0.3, 0.6, 0.8),
+            ProbeType::Researcher => Color::srgb(0.8, 0.3, 0.8),
+            ProbeType::Warrior => Color::srgb(0.8, 0.2, 0.2),
+            _ => Color::srgb(0.2, 0.8, 0.2),
+        };
+
         commands.spawn((
             Transform::from_xyz(position.x, position.y, 0.0),
             Probe {
@@ -100,17 +108,7 @@ pub fn probe_replication(
                 replication_progress: 0.0,
                 specialization_level: 1,
             },
-            Sprite {
-                color: match probe_type {
-                    ProbeType::Miner => Color::srgb(0.8, 0.6, 0.2),
-                    ProbeType::Scout => Color::srgb(0.3, 0.6, 0.8),
-                    ProbeType::Researcher => Color::srgb(0.8, 0.3, 0.8),
-                    ProbeType::Warrior => Color::srgb(0.8, 0.2, 0.2),
-                    _ => Color::srgb(0.2, 0.8, 0.2),
-                },
-                custom_size: Some(Vec2::new(8.0, 8.0)),
-                ..default()
-            },
+            Sprite::from_color(color, Vec2::new(8.0, 8.0)),
         ));
     }
 }
@@ -140,11 +138,7 @@ pub fn combat_system(
                     lifetime: 5.0,
                     owner: probe.id,
                 },
-                Sprite {
-                    color: Color::srgb(0.9, 0.4, 0.0),
-                    custom_size: Some(Vec2::new(3.0, 3.0)),
-                    ..default()
-                },
+                Sprite::from_color(Color::srgb(0.9, 0.4, 0.0), Vec2::new(3.0, 3.0)),
             ));
 
             probe.energy -= 20.0;
