@@ -1,0 +1,37 @@
+[package]
+name = "von-neumann-probe"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bevy = { version = "0.15", features = ["bevy_core_pipeline", "multi_threaded"] }
+bevy_ecs = "0.15"
+bevy_math = "0.15"
+bevy_render = "0.15"
+bevy_sprite = "0.15"
+bevy_text = "0.15"
+bevy_ui = "0.15"
+bevy_window = "0.15"
+bevy_input = "0.15"
+bevy_winit = "0.15"
+bevy_time = "0.15"
+bevy_asset = "0.15"
+
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+rand = "0.8"
+noise = "0.9"
+uuid = { version = "1.0", features = ["v4", "serde"] }
+
+glam = "0.29"
+thiserror = "1.0"
+log = "0.4"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+[profile.release]
+opt-level = 3
+lto = true
+
+[profile.dev]
+opt-level = 1
