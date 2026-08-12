@@ -22,6 +22,8 @@ mod pathfinding;
 mod simulation_layer;
 mod spatial_hash;
 mod archive_system;
+mod resilience;
+mod simd_physics;
 mod commands;
 mod achievements;
 mod missions;
@@ -50,6 +52,8 @@ use pathfinding::{Pathfinder, pathfinding_system};
 use simulation_layer::{SimulationLayerManager, update_viewport_center, layer_transition_system, active_swarm_simulation, strategic_swarm_simulation, event_propagation_system};
 use spatial_hash::SpatialGrid;
 use archive_system::ArchiveManager;
+use resilience::ResilienceSystem;
+use simd_physics::SimdPhysicsEngine;
 use commands::{CommandSystem, command_execution_system};
 use achievements::{AchievementManager, achievement_check_system};
 use missions::{MissionManager, mission_update_system};
@@ -90,6 +94,10 @@ fn main() {
     world.insert_resource(SimulationLayerManager::default());
     world.insert_resource(SpatialGrid::new(100.0));
     world.insert_resource(ArchiveManager::default());
+
+    // Resilience & Performance
+    world.insert_resource(ResilienceSystem::default());
+    world.insert_resource(SimdPhysicsEngine::new(10_000)); // Pre-allocate for 10K entities
 
     // Startup systems
     let mut startup_schedule = Schedule::default();
