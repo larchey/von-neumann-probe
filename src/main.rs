@@ -7,12 +7,16 @@ mod resources;
 mod generation;
 mod physics;
 mod rendering;
+mod threat_system;
+mod sector_streaming;
 
 use components::*;
 use systems::*;
 use resources::*;
 use generation::CathedralGenerator;
 use rendering::MinimalistTheme;
+use threat_system::*;
+use sector_streaming::*;
 
 fn main() {
     App::new()
@@ -29,6 +33,7 @@ fn main() {
         .init_resource::<CathedralGenerator>()
         .init_resource::<Camera2dResource>()
         .init_resource::<MinimalistTheme>()
+        .init_resource::<SectorManager>()
         .add_systems(Startup, setup_camera)
         .add_systems(Startup, spawn_initial_probe)
         .add_systems(Update, probe_movement)
@@ -36,6 +41,15 @@ fn main() {
         .add_systems(Update, probe_replication)
         .add_systems(Update, camera_follow)
         .add_systems(Update, debug_ui)
+        .add_systems(Update, spawn_threats)
+        .add_systems(Update, threat_targeting)
+        .add_systems(Update, threat_movement)
+        .add_systems(Update, threat_combat)
+        .add_systems(Update, combat_system)
+        .add_systems(Update, projectile_movement)
+        .add_systems(Update, projectile_hit_detection)
+        .add_systems(Update, stream_sectors)
+        .add_systems(Update, update_sector_entities)
         .run();
 }
 
