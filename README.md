@@ -1,4 +1,6 @@
-# Von Neumann Probe Game Engine
+# Von Neumann Probe Game
+
+A 2D grand strategy game about self-replicating space probes conquering the galaxy through exponential growth, automation, and emergent complexity. Game Engine
 
 A 2D RTS/sandbox game engine in Rust built with Bevy, featuring infinite scaling, procedural cathedral generation, self-replicating probes, and real-time combat mechanics.
 
