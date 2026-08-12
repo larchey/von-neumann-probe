@@ -19,10 +19,27 @@ thiserror = "1.0"
 log = "0.4"
 tracing = "0.1"
 tracing-subscriber = "0.3"
+bytemuck = { version = "1.14", features = ["derive"] }
+wgpu = { version = "0.19", optional = true }
+
+[features]
+default = []
+wgpu_rendering = ["wgpu"]
+
+[[bench]]
+name = "simulation_bench"
+harness = false
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
 
 [profile.release]
 opt-level = 3
 lto = true
+codegen-units = 1
 
 [profile.dev]
 opt-level = 1
+
+[profile.bench]
+inherits = "release"

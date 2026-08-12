@@ -19,6 +19,16 @@ mod audio;
 mod ui;
 mod input;
 mod pathfinding;
+mod simulation_layer;
+mod spatial_hash;
+mod archive_system;
+mod commands;
+mod achievements;
+mod missions;
+mod difficulty;
+mod multiplayer;
+mod wgpu_renderer;
+mod game_events;
 
 use components::*;
 use systems::*;
@@ -37,6 +47,13 @@ use audio::{AudioManager, audio_update_system, dynamic_music_system};
 use ui::{NotificationManager, HUD, notification_update_system, ui_render_system};
 use input::{InputState, SelectionManager, input_clear_system, selection_input_system, camera_control_system};
 use pathfinding::{Pathfinder, pathfinding_system};
+use simulation_layer::{SimulationLayerManager, update_viewport_center, layer_transition_system, active_swarm_simulation, strategic_swarm_simulation, event_propagation_system};
+use spatial_hash::SpatialGrid;
+use archive_system::ArchiveManager;
+use commands::{CommandSystem, command_execution_system};
+use achievements::{AchievementManager, achievement_check_system};
+use missions::{MissionManager, mission_update_system};
+use difficulty::GameModeSettings;
 
 fn main() {
     println!("🚀 Von Neumann Probe Engine v0.1.0");
@@ -64,6 +81,15 @@ fn main() {
     world.insert_resource(InputState::default());
     world.insert_resource(SelectionManager::default());
     world.insert_resource(Pathfinder::default());
+    world.insert_resource(CommandSystem::default());
+    world.insert_resource(AchievementManager::default());
+    world.insert_resource(MissionManager::default());
+    world.insert_resource(GameModeSettings::default());
+
+    // Scaling systems (multi-layer simulation)
+    world.insert_resource(SimulationLayerManager::default());
+    world.insert_resource(SpatialGrid::new(100.0));
+    world.insert_resource(ArchiveManager::default());
 
     // Startup systems
     let mut startup_schedule = Schedule::default();
