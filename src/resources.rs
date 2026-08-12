@@ -1,5 +1,7 @@
-use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
+use bevy_ecs::system::Resource;
+use bevy_ecs::entity::Entity;
+use bevy_math::Vec2;
 use crate::components::{Resources, ColonyStructure};
 
 #[derive(Resource)]
@@ -11,6 +13,9 @@ pub struct GameState {
     pub colony_structures: Vec<ColonyStructure>,
     pub threat_level: f32,
     pub expansion_progress: f32,
+    pub threats_defeated: usize,
+    pub sectors_explored: usize,
+    pub research_progress: f32,
 }
 
 impl Default for GameState {
@@ -23,6 +28,24 @@ impl Default for GameState {
             colony_structures: Vec::new(),
             threat_level: 0.0,
             expansion_progress: 0.0,
+            threats_defeated: 0,
+            sectors_explored: 1,
+            research_progress: 0.0,
+        }
+    }
+}
+
+#[derive(Resource)]
+pub struct GameTime {
+    pub delta_secs: f32,
+    pub total_secs: f32,
+}
+
+impl Default for GameTime {
+    fn default() -> Self {
+        Self {
+            delta_secs: 0.016,
+            total_secs: 0.0,
         }
     }
 }
@@ -31,6 +54,7 @@ impl Default for GameState {
 pub struct Camera2dResource {
     pub follow_target: Option<Entity>,
     pub zoom: f32,
+    pub position: Vec2,
 }
 
 impl Default for Camera2dResource {
@@ -38,6 +62,7 @@ impl Default for Camera2dResource {
         Self {
             follow_target: None,
             zoom: 1.0,
+            position: Vec2::ZERO,
         }
     }
 }

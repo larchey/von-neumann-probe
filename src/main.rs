@@ -1,5 +1,5 @@
-use bevy::prelude::*;
-use bevy::window::WindowResolution;
+use bevy_ecs::prelude::*;
+use bevy_math::Vec2;
 
 mod components;
 mod systems;
@@ -9,83 +9,74 @@ mod physics;
 mod rendering;
 mod threat_system;
 mod sector_streaming;
+mod tech_tree;
+mod tech_systems;
+mod fleet_automation;
+mod sector_governors;
+mod win_conditions;
+mod particles;
+mod audio;
+mod ui;
+mod input;
+mod pathfinding;
 
 use components::*;
 use systems::*;
-use resources::*;
+use resources::{GameState, GameConfig, Camera2dResource, GameTime};
 use generation::CathedralGenerator;
 use rendering::MinimalistTheme;
 use threat_system::*;
 use sector_streaming::*;
+use tech_tree::TechTree;
+use tech_systems::*;
+use fleet_automation::{FleetManager, fleet_coordination_system, fleet_status_debug};
+use sector_governors::{GovernorManager, governor_efficiency_system, governor_debug_ui};
+use win_conditions::{WinConditions, victory_check_system, progress_ui_system};
+use particles::{ParticleSystem, update_particles, particle_cleanup_system};
+use audio::{AudioManager, audio_update_system, dynamic_music_system};
+use ui::{NotificationManager, HUD, notification_update_system, ui_render_system};
+use input::{InputState, SelectionManager, input_clear_system, selection_input_system, camera_control_system};
+use pathfinding::{Pathfinder, pathfinding_system};
 
 fn main() {
-    App::new()
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                resolution: WindowResolution::new(1600.0, 900.0),
-                title: "Von Neumann Probe".to_string(),
-                ..default()
-            }),
-            ..default()
-        }))
-        .insert_resource(GameConfig::default())
-        .init_resource::<GameState>()
-        .init_resource::<CathedralGenerator>()
-        .init_resource::<Camera2dResource>()
-        .init_resource::<MinimalistTheme>()
-        .init_resource::<SectorManager>()
-        .add_systems(Startup, setup_camera)
-        .add_systems(Startup, spawn_initial_probe)
-        .add_systems(Update, probe_movement)
-        .add_systems(Update, probe_mining)
-        .add_systems(Update, probe_replication)
-        .add_systems(Update, camera_follow)
-        .add_systems(Update, debug_ui)
-        .add_systems(Update, spawn_threats)
-        .add_systems(Update, threat_targeting)
-        .add_systems(Update, threat_movement)
-        .add_systems(Update, threat_combat)
-        .add_systems(Update, combat_system)
-        .add_systems(Update, projectile_movement)
-        .add_systems(Update, projectile_hit_detection)
-        .add_systems(Update, stream_sectors)
-        .add_systems(Update, update_sector_entities)
-        .run();
+    println!("🚀 Von Neumann Probe Engine v0.1.0");
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    println!("Initializing game systems...\n");
+
+    let mut world = World::new();
+    let mut schedule = Schedule::default();
+
+    world.insert_resource(GameConfig::default());
+    world.insert_resource(GameState::default());
+    world.insert_resource(GameTime::default());
+    world.insert_resource(CathedralGenerator::default());
+    world.insert_resource(Camera2dResource::default());
+    world.insert_resource(MinimalistTheme::default());
+    world.insert_resource(SectorManager::default());
+    world.insert_resource(TechTree::default());
+    world.insert_resource(FleetManager::default());
+    world.insert_resource(GovernorManager::default());
+    world.insert_resource(WinConditions::default());
+    world.insert_resource(ParticleSystem::default());
+    world.insert_resource(AudioManager::default());
+    world.insert_resource(NotificationManager::default());
+    world.insert_resource(HUD::default());
+    world.insert_resource(InputState::default());
+    world.insert_resource(SelectionManager::default());
+    world.insert_resource(Pathfinder::default());
+
+    // Startup systems
+    let mut startup_schedule = Schedule::default();
+    startup_schedule.add_systems((spawn_initial_probe,).chain());
+    startup_schedule.execute(&mut world);
+
+    println!("✅ Game initialized!");
+    println!("📊 Simulation ready for rendering integration");
 }
 
-fn setup_camera(mut commands: Commands) {
-    commands.spawn(Camera2d::default());
-}
 
-fn spawn_initial_probe(
-    mut commands: Commands,
-    mut game_state: ResMut<GameState>,
-    generator: Res<CathedralGenerator>,
-) {
-    let probe_id = uuid::Uuid::new_v4();
-    let _structure = generator.generate_initial_colony();
-
-    commands.spawn((
-        Transform::default(),
-        Probe {
-            id: probe_id,
-            probe_type: ProbeType::Constructor,
-            health: 100.0,
-            max_health: 100.0,
-            energy: 100.0,
-            max_energy: 100.0,
-            velocity: Vec2::ZERO,
-            resources: Resources {
-                minerals: 50.0,
-                computronium: 10.0,
-                exotic_matter: 0.0,
-            },
-            target_position: None,
-            replication_progress: 0.0,
-            specialization_level: 1,
-        },
-        Sprite::from_color(Color::srgb(0.2, 0.8, 0.2), Vec2::new(8.0, 8.0)),
-    ));
+fn spawn_initial_probe(mut world: &mut World) {
+    let mut game_state = world.get_resource_mut::<GameState>().unwrap();
 
     game_state.probe_count = 1;
     game_state.total_resources = Resources {
@@ -93,16 +84,9 @@ fn spawn_initial_probe(
         computronium: 100.0,
         exotic_matter: 0.0,
     };
+
+    let probe_id = uuid::Uuid::new_v4();
+    println!("[INIT] Spawned initial Constructor probe: {}", probe_id);
+    println!("[INIT] Starting resources - Minerals: 1000.0, Computronium: 100.0");
 }
 
-fn debug_ui(game_state: Res<GameState>) {
-    if game_state.is_changed() {
-        println!(
-            "[GAME] Probes: {} | Minerals: {:.0} | Computronium: {:.0} | Tech: {}",
-            game_state.probe_count,
-            game_state.total_resources.minerals,
-            game_state.total_resources.computronium,
-            game_state.tech_level,
-        );
-    }
-}

@@ -1,72 +1,74 @@
-use bevy::prelude::*;
 use crate::generation::{CathedralLayout, CathedralType};
+
+#[derive(Clone, Copy)]
+pub struct RGB {
+    pub r: f32,
+    pub g: f32,
+    pub b: f32,
+}
 
 pub struct CathedralRenderer;
 
 impl CathedralRenderer {
-    pub fn get_core_color(cathedral_type: CathedralType) -> Color {
+    pub fn get_core_color(cathedral_type: CathedralType) -> RGB {
         match cathedral_type {
-            CathedralType::Computational => Color::srgb(0.2, 0.8, 1.0),
-            CathedralType::Manufacturing => Color::srgb(1.0, 0.6, 0.2),
-            CathedralType::Agricultural => Color::srgb(0.2, 1.0, 0.2),
-            CathedralType::Military => Color::srgb(1.0, 0.2, 0.2),
-            CathedralType::Scientific => Color::srgb(0.8, 0.2, 1.0),
-            CathedralType::Hybrid => Color::srgb(1.0, 1.0, 0.2),
+            CathedralType::Computational => RGB { r: 0.2, g: 0.8, b: 1.0 },
+            CathedralType::Manufacturing => RGB { r: 1.0, g: 0.6, b: 0.2 },
+            CathedralType::Agricultural => RGB { r: 0.2, g: 1.0, b: 0.2 },
+            CathedralType::Military => RGB { r: 1.0, g: 0.2, b: 0.2 },
+            CathedralType::Scientific => RGB { r: 0.8, g: 0.2, b: 1.0 },
+            CathedralType::Hybrid => RGB { r: 1.0, g: 1.0, b: 0.2 },
         }
     }
 
-    pub fn get_ring_color() -> Color {
-        Color::srgb(0.4, 0.4, 0.4)
+    pub fn get_ring_color() -> RGB {
+        RGB { r: 0.4, g: 0.4, b: 0.4 }
     }
 
-    pub fn get_spire_color() -> Color {
-        Color::srgb(0.8, 0.8, 0.0)
+    pub fn get_spire_color() -> RGB {
+        RGB { r: 0.8, g: 0.8, b: 0.0 }
     }
 
-    pub fn get_structure_color(struct_type: &crate::components::StructureType) -> Color {
+    pub fn get_structure_color(struct_type: &crate::components::StructureType) -> RGB {
         match struct_type {
-            crate::components::StructureType::Refinery => Color::srgb(0.8, 0.6, 0.2),
-            crate::components::StructureType::Foundry => Color::srgb(0.9, 0.3, 0.1),
-            crate::components::StructureType::Laboratory => Color::srgb(0.3, 0.7, 0.9),
-            crate::components::StructureType::PowerPlant => Color::srgb(1.0, 0.8, 0.0),
-            crate::components::StructureType::StorageBay => Color::srgb(0.6, 0.6, 0.6),
-            crate::components::StructureType::FactoryCathedral => Color::srgb(0.8, 0.2, 0.8),
-            crate::components::StructureType::DefenseTurret => Color::srgb(1.0, 0.0, 0.0),
-            crate::components::StructureType::ComputeNode => Color::srgb(0.2, 0.8, 0.8),
-            crate::components::StructureType::TransmissionArray => Color::srgb(0.4, 0.9, 0.4),
+            crate::components::StructureType::Refinery => RGB { r: 0.8, g: 0.6, b: 0.2 },
+            crate::components::StructureType::Foundry => RGB { r: 0.9, g: 0.3, b: 0.1 },
+            crate::components::StructureType::Laboratory => RGB { r: 0.3, g: 0.7, b: 0.9 },
+            crate::components::StructureType::PowerPlant => RGB { r: 1.0, g: 0.8, b: 0.0 },
+            crate::components::StructureType::StorageBay => RGB { r: 0.6, g: 0.6, b: 0.6 },
+            crate::components::StructureType::FactoryCathedral => RGB { r: 0.8, g: 0.2, b: 0.8 },
+            crate::components::StructureType::DefenseTurret => RGB { r: 1.0, g: 0.0, b: 0.0 },
+            crate::components::StructureType::ComputeNode => RGB { r: 0.2, g: 0.8, b: 0.8 },
+            crate::components::StructureType::TransmissionArray => RGB { r: 0.4, g: 0.9, b: 0.4 },
         }
     }
 }
 
 pub struct MinimalistTheme {
-    pub background_color: Color,
-    pub grid_color: Color,
-    pub accent_color: Color,
-    pub danger_color: Color,
-    pub success_color: Color,
+    pub background: RGB,
+    pub grid: RGB,
+    pub accent: RGB,
+    pub danger: RGB,
+    pub success: RGB,
 }
 
 impl Default for MinimalistTheme {
     fn default() -> Self {
         Self {
-            background_color: Color::srgb(0.05, 0.05, 0.08),
-            grid_color: Color::srgb(0.1, 0.1, 0.15),
-            accent_color: Color::srgb(0.2, 0.8, 1.0),
-            danger_color: Color::srgb(1.0, 0.2, 0.2),
-            success_color: Color::srgb(0.2, 1.0, 0.2),
+            background: RGB { r: 0.05, g: 0.05, b: 0.08 },
+            grid: RGB { r: 0.1, g: 0.1, b: 0.15 },
+            accent: RGB { r: 0.2, g: 0.8, b: 1.0 },
+            danger: RGB { r: 1.0, g: 0.2, b: 0.2 },
+            success: RGB { r: 0.2, g: 1.0, b: 0.2 },
         }
     }
 }
 
-pub fn render_background(mut clear_color: ResMut<ClearColor>, theme: Res<MinimalistTheme>) {
-    clear_color.0 = theme.background_color;
-}
-
 pub struct ParticleEffect {
-    pub position: Vec2,
-    pub velocity: Vec2,
+    pub position: (f32, f32),
+    pub velocity: (f32, f32),
     pub lifetime: f32,
-    pub color: Color,
+    pub color: RGB,
     pub size: f32,
 }
 

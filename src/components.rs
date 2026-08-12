@@ -1,7 +1,7 @@
-use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
+use bevy_math::Vec2;
 
-#[derive(Component, Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Probe {
     pub id: uuid::Uuid,
     pub probe_type: ProbeType,
@@ -26,7 +26,7 @@ pub enum ProbeType {
     Administrator,
 }
 
-#[derive(Component, Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ColonyStructure {
     pub id: uuid::Uuid,
     pub structure_type: StructureType,
@@ -85,7 +85,7 @@ impl Resources {
     }
 }
 
-#[derive(Component, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct AsteroidField {
     pub position: Vec2,
     pub size: f32,
@@ -93,7 +93,7 @@ pub struct AsteroidField {
     pub resources: Resources,
 }
 
-#[derive(Component, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct CombatEntity {
     pub threat_level: f32,
     pub attack_power: f32,
@@ -101,7 +101,7 @@ pub struct CombatEntity {
     pub current_cooldown: f32,
 }
 
-#[derive(Component, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct Projectile {
     pub velocity: Vec2,
     pub damage: f32,
@@ -109,8 +109,8 @@ pub struct Projectile {
     pub owner: uuid::Uuid,
 }
 
-#[derive(Component)]
+#[derive(Clone)]
 pub struct Camera2dComponent;
 
-#[derive(Component)]
+#[derive(Clone)]
 pub struct FollowTarget;
