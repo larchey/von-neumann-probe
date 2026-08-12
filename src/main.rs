@@ -24,6 +24,7 @@ mod spatial_hash;
 mod archive_system;
 mod resilience;
 mod simd_physics;
+mod memory_profiler;
 mod commands;
 mod achievements;
 mod missions;
@@ -54,6 +55,7 @@ use spatial_hash::SpatialGrid;
 use archive_system::ArchiveManager;
 use resilience::ResilienceSystem;
 use simd_physics::SimdPhysicsEngine;
+use memory_profiler::{MemoryProfiler, memory_profiler_system};
 use commands::{CommandSystem, command_execution_system};
 use achievements::{AchievementManager, achievement_check_system};
 use missions::{MissionManager, mission_update_system};
@@ -98,6 +100,7 @@ fn main() {
     // Resilience & Performance
     world.insert_resource(ResilienceSystem::default());
     world.insert_resource(SimdPhysicsEngine::new(10_000)); // Pre-allocate for 10K entities
+    world.insert_resource(MemoryProfiler::default());
 
     // Startup systems
     let mut startup_schedule = Schedule::default();

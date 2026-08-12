@@ -11,8 +11,11 @@ bevy_utils = "0.15"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 rand = "0.8"
+fastrand = "2.0"
 noise = "0.9"
 uuid = { version = "1.0", features = ["v4", "serde"] }
+sha2 = "0.10"
+zstd = "0.13"
 
 glam = "0.29"
 thiserror = "1.0"
@@ -28,6 +31,10 @@ wgpu_rendering = ["wgpu"]
 
 [[bench]]
 name = "simulation_bench"
+harness = false
+
+[[bench]]
+name = "scaling_stress_test"
 harness = false
 
 [dev-dependencies]
