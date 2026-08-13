@@ -33,7 +33,13 @@ The only lever is **doctrine**, broadcast from Sol at lightspeed:
 
 - **Target policy** — `nearest` (dense consolidation), `richest` (settle
   only good systems: fewer colonies, each more productive), `outward`
-  (race the wave outward).
+  (race the wave outward), `survey` (chase the systems likeliest to hold
+  life, at a steep cost in control).
+- **Spec investment** — engineer speed, fabrication, or reliability into
+  every replica, at a cost in material per probe. Speed is growth and
+  fragility (v² attrition), fabrication is colony yield, reliability is
+  insurance. Directed drift is one-way, so engineered lines also diverge
+  and secede faster: improving your descendants makes them leave sooner.
 - **Warning stance** — respect Watcher warnings, or push into their space
   until they start shooting.
 
