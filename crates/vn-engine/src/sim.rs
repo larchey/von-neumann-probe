@@ -285,7 +285,7 @@ impl Simulation {
                 civ.key,
                 CivRelation { met_at: self.time, irritation: 0, colonies_lost_to: 0 },
             );
-            self.emit(star, ReportKind::FirstContact, format!(
+            self.emit_civ(star, ReportKind::FirstContact, Some(civ.key), format!(
                 "FIRST CONTACT: probe {} has entered the space of {} at {}. \
                  Territory radius ~{:.0} ly.",
                 probe_id.0, civ.name(), self.galaxy.name(star.id), civ.radius_at(years)
@@ -319,7 +319,7 @@ impl Simulation {
                     salvaged = Some((desc, gain));
                 }
                 if let Some((desc, gain)) = salvaged {
-                    self.emit(star, ReportKind::XenoSalvage, format!(
+                    self.emit_civ(star, ReportKind::XenoSalvage, Some(civ.key), format!(
                         "Ruins of {} catalogued at {}. Salvaged {} improvements (+{:.0}%) \
                          folded into the lineage template.",
                         civ.name(), self.galaxy.name(star.id), desc, (gain - 1.0) * 100.0
@@ -340,12 +340,12 @@ impl Simulation {
                     self.stats.probes_killed += 1;
                     self.claimed.remove(&star.id);
                     self.probes.remove(&probe_id);
-                    self.emit(star, ReportKind::ProbeKilled, format!(
+                    self.emit_civ(star, ReportKind::ProbeKilled, Some(civ.key), format!(
                         "Probe {} destroyed by pickets of {} at {}. No survivors of the encounter.",
                         probe_id.0, civ.name(), self.galaxy.name(star.id)
                     ));
                 } else {
-                    self.emit(star, ReportKind::CivWarning, format!(
+                    self.emit_civ(star, ReportKind::CivWarning, Some(civ.key), format!(
                         "Probe {} expelled from {} by {}. Withdrawing.",
                         probe_id.0, self.galaxy.name(star.id), civ.name()
                     ));
@@ -371,7 +371,7 @@ impl Simulation {
                     rel.irritation += 1;
                     let irritation = rel.irritation;
                     if irritation == WATCHER_WARN_AT {
-                        self.emit(&star, ReportKind::CivWarning, format!(
+                        self.emit_civ(&star, ReportKind::CivWarning, Some(civ.key), format!(
                             "{} have issued a formal warning: cease expansion into their space.",
                             civ.name()
                         ));
@@ -424,7 +424,7 @@ impl Simulation {
             .civ_by_key(civ_key)
             .map(|c| c.name())
             .unwrap_or_else(|| "an unknown power".to_string());
-        self.emit(&star, ReportKind::ColonyLost, format!(
+        self.emit_civ(&star, ReportKind::ColonyLost, Some(civ_key), format!(
             "Colony at {} destroyed by {}. {} probes were built there. The system falls silent.",
             self.galaxy.name(star_id), civ_name, colony.probes_built
         ));
@@ -640,12 +640,19 @@ impl Simulation {
     // ---- observation ----------------------------------------------------
 
     fn emit(&mut self, origin: &Star, kind: ReportKind, text: String) {
+        self.emit_civ(origin, kind, None, text);
+    }
+
+    fn emit_civ(&mut self, origin: &Star, kind: ReportKind, civ: Option<CivKey>, text: String) {
         let dist = (origin.x * origin.x + origin.y * origin.y).sqrt();
         self.reports.push(Report {
             kind,
             occurred_at: self.time,
             received_at: self.time.plus_years(dist), // signal travels at c
             distance_ly: dist,
+            x: origin.x,
+            y: origin.y,
+            civ,
             text,
         });
         // Bound log memory over deep time: drop the oldest routine

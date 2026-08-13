@@ -4,6 +4,7 @@
 //! read it. Frontends should present `received_at`-ordered reports and
 //! never leak ground truth ahead of light.
 
+use crate::civs::CivKey;
 use crate::time::SimTime;
 use serde::{Deserialize, Serialize};
 
@@ -37,6 +38,12 @@ pub struct Report {
     pub received_at: SimTime,
     /// Distance from Sol of the originating system, in light-years.
     pub distance_ly: f64,
+    /// Where the event happened — this is how the player's knowledge map
+    /// is built purely from received signals.
+    pub x: f64,
+    pub y: f64,
+    /// The civilization involved, when the event concerns one.
+    pub civ: Option<CivKey>,
     /// Human-readable summary.
     pub text: String,
 }

@@ -253,7 +253,8 @@ fn interactive(sim: &mut Simulation) {
                 last_recv = sim.time;
             }
             ["status"] => status(sim),
-            ["map"] => render_map(sim),
+            ["map"] => render_known_map(sim),
+            ["map", "all"] => render_map(sim),
             ["civs"] => {
                 if sim.relations.is_empty() {
                     println!("no contact with other civilizations yet.");
@@ -315,7 +316,8 @@ fn interactive(sim: &mut Simulation) {
             ["help"] => {
                 println!("run <years>      advance the simulation");
                 println!("status           one-line empire summary");
-                println!("map              galaxy chart");
+                println!("map              chart of what signals have reached Sol (your actual knowledge)");
+                println!("map all          omniscient ground-truth chart (debug)");
                 println!("civs             known civilizations");
                 println!("log <n>          last n received signals");
                 println!("policy <p>       broadcast doctrine: nearest|richest|outward (travels at c!)");
@@ -344,6 +346,96 @@ fn status(sim: &Simulation) {
     );
 }
 
+/// The chart mission control can actually draw: built *only* from signals
+/// that have physically reached Sol. Colonies appear when their founding
+/// report arrives (decades late), disappear when their loss report does —
+/// the far frontier on this map is always old news, and the wave's true
+/// edge is invisible.
+fn render_known_map(sim: &Simulation) {
+    use vn_engine::civs::Disposition;
+    use vn_engine::report::ReportKind;
+
+    const W: i32 = 71;
+    const H: i32 = 35;
+    let received = sim.reports_received_by(sim.time);
+
+    // Reconstruct knowledge in receive order; quantize positions so a
+    // ColonyLost report cancels its ColonyFounded predecessor.
+    let quant = |v: f64| (v * 10.0).round() as i64;
+    let mut known_colonies: std::collections::BTreeMap<(i64, i64), (f64, f64)> =
+        std::collections::BTreeMap::new();
+    let mut known_civs: std::collections::BTreeMap<(i32, i32), f64> =
+        std::collections::BTreeMap::new();
+    let mut radius: f64 = 40.0;
+    for r in &received {
+        match r.kind {
+            ReportKind::ColonyFounded => {
+                known_colonies.insert((quant(r.x), quant(r.y)), (r.x, r.y));
+                radius = radius.max(r.distance_ly * 1.2 + 15.0);
+            }
+            ReportKind::ColonyLost => {
+                known_colonies.remove(&(quant(r.x), quant(r.y)));
+            }
+            _ => {}
+        }
+        if let Some(key) = r.civ {
+            known_civs.entry(key).or_insert(r.occurred_at.as_years());
+        }
+    }
+
+    let sx = 2.0 * radius / W as f64;
+    let sy = 2.0 * radius / H as f64;
+    let mut grid = vec![b' '; (W * H) as usize];
+    let to_cell = |x: f64, y: f64| -> Option<(i32, i32)> {
+        let cx = (x / sx).round() as i32 + W / 2;
+        let cy = (y / sy).round() as i32 + H / 2;
+        (cx >= 0 && cx < W && cy >= 0 && cy < H).then_some((cx, cy))
+    };
+
+    // Known civ territories, drawn at the radius we *observed* (the border
+    // may have moved since — we wouldn't know yet).
+    for (key, seen_years) in &known_civs {
+        if let Some(civ) = sim.civ_field.civ_by_key(*key) {
+            for cy in 0..H {
+                for cx in 0..W {
+                    let x = (cx - W / 2) as f64 * sx;
+                    let y = (cy - H / 2) as f64 * sy;
+                    if civ.contains(x, y, *seen_years) {
+                        let ch = match civ.disposition {
+                            Disposition::Extinct => b'.',
+                            Disposition::Watcher => b'w',
+                            Disposition::Territorial => b't',
+                            Disposition::Expansionist => b'x',
+                        };
+                        grid[(cy * W + cx) as usize] = ch;
+                    }
+                }
+            }
+        }
+    }
+    for (_, (x, y)) in &known_colonies {
+        if let Some((cx, cy)) = to_cell(*x, *y) {
+            grid[(cy * W + cx) as usize] = b'o';
+        }
+    }
+    if let Some((cx, cy)) = to_cell(0.0, 0.0) {
+        grid[(cy * W + cx) as usize] = b'@';
+    }
+
+    println!(
+        "\n─── known space, Y{:.0} — {:.0} ly across (as reported; the frontier is older than it looks) ───",
+        sim.time.as_years(),
+        2.0 * radius
+    );
+    for cy in 0..H {
+        let row = &grid[(cy * W) as usize..((cy + 1) * W) as usize];
+        println!("{}", std::str::from_utf8(row).unwrap());
+    }
+    println!(
+        "@ Sol   o colony (as last heard)   . ruins  w watcher  t territorial  x swarm (borders as observed)"
+    );
+}
+
 /// Top-down chart of the expansion sphere (omniscient debug view, not the
 /// light-lagged player view). One character ≈ (2R/width) light-years.
 fn render_map(sim: &Simulation) {
@@ -362,7 +454,7 @@ fn render_map(sim: &Simulation) {
         (cx >= 0 && cx < W && cy >= 0 && cy < H).then_some((cx, cy))
     };
     let mut grid = vec![b' '; (W * H) as usize];
-    let mut put = |cell: Option<(i32, i32)>, ch: u8, grid: &mut Vec<u8>| {
+    let put = |cell: Option<(i32, i32)>, ch: u8, grid: &mut Vec<u8>| {
         if let Some((cx, cy)) = cell {
             grid[(cy * W + cx) as usize] = ch;
         }
