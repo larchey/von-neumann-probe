@@ -6,9 +6,10 @@
 //! the tail of mission control's message log. The log honors light lag:
 //! you only see what a signal could physically have delivered to Sol.
 
-use vn_engine::sim::Simulation;
+use vn_engine::sim::{Doctrine, Simulation};
 use vn_engine::time::SimTime;
 use vn_engine::{SimConfig, TargetPolicy};
+use std::io::{BufRead, Write};
 
 struct Args {
     seed: u64,
@@ -20,6 +21,7 @@ struct Args {
     save: Option<String>,
     load: Option<String>,
     map: bool,
+    interactive: bool,
 }
 
 fn parse_args() -> Args {
@@ -33,6 +35,7 @@ fn parse_args() -> Args {
         save: None,
         load: None,
         map: false,
+        interactive: false,
     };
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {
@@ -57,6 +60,7 @@ fn parse_args() -> Args {
             "--save" => args.save = Some(grab()),
             "--load" => args.load = Some(grab()),
             "--map" => args.map = true,
+            "--interactive" | "-i" => args.interactive = true,
             "--help" | "-h" => {
                 println!(
                     "vnp [--seed N] [--years N] [--step N] [--reports N] \
@@ -102,6 +106,11 @@ fn main() {
             ..SimConfig::default()
         }),
     };
+    if args.interactive {
+        interactive(&mut sim);
+        return;
+    }
+
     let cfg = sim.cfg.clone();
     println!(
         "von Neumann probe expansion — seed {}, {} years",
@@ -195,6 +204,144 @@ fn main() {
             Err(e) => eprintln!("failed to save {path}: {e}"),
         }
     }
+}
+
+/// Mission-control REPL. The one lever you have is doctrine — and your
+/// broadcasts crawl outward at c, so the frontier keeps obeying old orders
+/// for decades after you change your mind.
+fn interactive(sim: &mut Simulation) {
+    println!("mission control online — Y{:.1}. type 'help' for commands.", sim.time.as_years());
+    let stdin = std::io::stdin();
+    let mut last_recv = sim.time;
+    loop {
+        print!("Y{:.1}> ", sim.time.as_years());
+        std::io::stdout().flush().ok();
+        let mut line = String::new();
+        if stdin.lock().read_line(&mut line).unwrap_or(0) == 0 {
+            break; // EOF
+        }
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        match parts.as_slice() {
+            ["run", years] => {
+                let years: f64 = match years.parse() {
+                    Ok(y) => y,
+                    Err(_) => {
+                        println!("usage: run <years>");
+                        continue;
+                    }
+                };
+                sim.run_until(sim.time.plus_years(years));
+                status(sim);
+                // Only what light has delivered since the last check-in.
+                let fresh: Vec<_> = sim
+                    .reports_received_by(sim.time)
+                    .into_iter()
+                    .filter(|r| r.received_at > last_recv)
+                    .collect();
+                let total = fresh.len();
+                for r in fresh.into_iter().rev().take(12).rev() {
+                    println!(
+                        "[recv Y{:>7.1} | {:>5.1} ly] {}",
+                        r.received_at.as_years(),
+                        r.distance_ly,
+                        r.text
+                    );
+                }
+                if total > 12 {
+                    println!("(…and {} more signals; 'log <n>' to see more)", total - 12);
+                }
+                last_recv = sim.time;
+            }
+            ["status"] => status(sim),
+            ["map"] => render_map(sim),
+            ["civs"] => {
+                if sim.relations.is_empty() {
+                    println!("no contact with other civilizations yet.");
+                }
+                for (key, rel) in &sim.relations {
+                    if let Some(civ) = sim.civ_field.civ_by_key(*key) {
+                        println!(
+                            "{:<32} met Y{:<8.1} irritation {:<3} colonies lost: {}",
+                            civ.name(),
+                            rel.met_at.as_years(),
+                            rel.irritation,
+                            rel.colonies_lost_to
+                        );
+                    }
+                }
+            }
+            ["log", n] => {
+                let n: usize = n.parse().unwrap_or(20);
+                for r in sim.reports_received_by(sim.time).into_iter().rev().take(n).rev() {
+                    println!(
+                        "[recv Y{:>7.1} | {:>5.1} ly] {}",
+                        r.received_at.as_years(),
+                        r.distance_ly,
+                        r.text
+                    );
+                }
+            }
+            ["policy", p] => {
+                let policy = match *p {
+                    "nearest" => TargetPolicy::Nearest,
+                    "richest" => TargetPolicy::Richest,
+                    "outward" => TargetPolicy::Outward,
+                    _ => {
+                        println!("usage: policy nearest|richest|outward");
+                        continue;
+                    }
+                };
+                let current = sim.doctrine_at(0.0, 0.0);
+                sim.broadcast_doctrine(Doctrine { policy, ..current });
+                println!(
+                    "broadcast sent. the frontier ({:.0} ly out) will hear this in ~{:.0} years.",
+                    sim.frontier_radius_ly(),
+                    sim.frontier_radius_ly()
+                );
+            }
+            ["bold", v @ ("on" | "off")] => {
+                let current = sim.doctrine_at(0.0, 0.0);
+                sim.broadcast_doctrine(Doctrine {
+                    respect_warnings: *v == "off",
+                    ..current
+                });
+                println!("broadcast sent (bold {}).", v);
+            }
+            ["save", path] => match std::fs::write(path, sim.to_json()) {
+                Ok(()) => println!("saved to {path}"),
+                Err(e) => println!("save failed: {e}"),
+            },
+            ["quit"] | ["exit"] => break,
+            ["help"] => {
+                println!("run <years>      advance the simulation");
+                println!("status           one-line empire summary");
+                println!("map              galaxy chart");
+                println!("civs             known civilizations");
+                println!("log <n>          last n received signals");
+                println!("policy <p>       broadcast doctrine: nearest|richest|outward (travels at c!)");
+                println!("bold on|off      ignore/respect Watcher warnings (travels at c!)");
+                println!("save <file>      write save");
+                println!("quit             exit");
+            }
+            [] => {}
+            _ => println!("unknown command; 'help' lists commands."),
+        }
+    }
+}
+
+fn status(sim: &Simulation) {
+    println!(
+        "Y{:>7.1} | {} probes ({} in transit) | {} colonies | frontier {:.1} ly | gen {} | {} lost, {} killed | {} civs known",
+        sim.time.as_years(),
+        sim.probes.len(),
+        sim.probes_in_transit(),
+        sim.colonies.len(),
+        sim.frontier_radius_ly(),
+        sim.max_generation(),
+        sim.stats.probes_lost,
+        sim.stats.probes_killed,
+        sim.relations.len()
+    );
 }
 
 /// Top-down chart of the expansion sphere (omniscient debug view, not the

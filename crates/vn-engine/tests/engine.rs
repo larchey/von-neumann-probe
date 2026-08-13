@@ -1,4 +1,5 @@
 use vn_engine::civs::{CivField, SOL_EXCLUSION_LY};
+use vn_engine::sim::Doctrine;
 use vn_engine::galaxy::{Galaxy, StarId};
 use vn_engine::sim::Simulation;
 use vn_engine::time::SimTime;
@@ -120,6 +121,27 @@ fn first_contact_eventually_happens() {
         let earliest = SOL_EXCLUSION_LY / 0.5; // generous: 0.5c bound
         assert!(rel.met_at.as_years() > earliest * 0.2);
     }
+}
+
+#[test]
+fn doctrine_broadcasts_propagate_at_lightspeed() {
+    let mut sim = Simulation::new(SimConfig::default());
+    sim.run_until(SimTime::from_years(100.0));
+    sim.broadcast_doctrine(Doctrine {
+        policy: TargetPolicy::Outward,
+        respect_warnings: true,
+    });
+
+    // At Sol the new order is in force immediately.
+    assert_eq!(sim.doctrine_at(0.0, 0.0).policy, TargetPolicy::Outward);
+    // 60 ly out, the light-front hasn't arrived: old orders hold...
+    assert_eq!(sim.doctrine_at(60.0, 0.0).policy, TargetPolicy::Nearest);
+
+    // ...until year 160, when the broadcast physically gets there.
+    sim.run_until(SimTime::from_years(159.0));
+    assert_eq!(sim.doctrine_at(60.0, 0.0).policy, TargetPolicy::Nearest);
+    sim.run_until(SimTime::from_years(161.0));
+    assert_eq!(sim.doctrine_at(60.0, 0.0).policy, TargetPolicy::Outward);
 }
 
 #[test]

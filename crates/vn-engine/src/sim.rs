@@ -56,6 +56,16 @@ const WATCHER_WARN_AT: u32 = 3;
 /// ...and begin destroying new colonies at this one.
 pub const WATCHER_STRIKE_AT: u32 = 5;
 
+/// A standing order broadcast from Sol. Doctrine is the only thing the
+/// player controls — and it propagates at c, so a change made today
+/// governs a colony 80 ly out only 80 years from now. The empire is a set
+/// of nested light-cones of obedience.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Doctrine {
+    pub policy: TargetPolicy,
+    pub respect_warnings: bool,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Simulation {
     pub cfg: SimConfig,
@@ -73,6 +83,9 @@ pub struct Simulation {
     pub civ_field: CivField,
     /// Civilizations we've physically encountered.
     pub relations: BTreeMap<CivKey, CivRelation>,
+    /// Doctrine broadcasts, in send order. Each entry governs a location
+    /// only once its light-front has arrived there.
+    doctrine_history: Vec<(SimTime, Doctrine)>,
     pub reports: Vec<Report>,
     pub stats: SimStats,
 }
@@ -88,6 +101,10 @@ impl Simulation {
             galaxy,
             civ_field,
             relations: BTreeMap::new(),
+            doctrine_history: vec![(
+                SimTime::ZERO,
+                Doctrine { policy: cfg.policy, respect_warnings: cfg.respect_warnings },
+            )],
             time: SimTime::ZERO,
             queue: EventQueue::default(),
             rng,
@@ -160,10 +177,35 @@ impl Simulation {
         }
     }
 
+    /// Broadcast a new standing order from Sol. It takes effect at each
+    /// location only when its light-front arrives there.
+    pub fn broadcast_doctrine(&mut self, doctrine: Doctrine) {
+        self.doctrine_history.push((self.time, doctrine));
+        let sol = self.galaxy.star(StarId::SOL);
+        self.emit(&sol, ReportKind::DoctrineChange, format!(
+            "Doctrine broadcast from Sol: {:?}{}. Propagating at c.",
+            doctrine.policy,
+            if doctrine.respect_warnings { "" } else { " (ignore warnings)" }
+        ));
+    }
+
+    /// The doctrine in force at a location: the newest broadcast whose
+    /// light-front has reached it. Distant colonies obey old orders.
+    pub fn doctrine_at(&self, x: f64, y: f64) -> Doctrine {
+        let dist_ly = (x * x + y * y).sqrt();
+        let mut current = self.doctrine_history[0].1;
+        for (sent, d) in &self.doctrine_history {
+            if sent.plus_years(dist_ly) <= self.time {
+                current = *d;
+            }
+        }
+        current
+    }
+
     /// Doctrine-adjusted settlement bar: Richest doctrine refuses to
     /// settle mediocre systems at all — fewer colonies, each faster.
-    fn effective_min_richness(&self) -> f64 {
-        match self.cfg.policy {
+    fn effective_min_richness(&self, policy: TargetPolicy) -> f64 {
+        match policy {
             TargetPolicy::Richest => self.cfg.min_richness.max(0.7),
             _ => self.cfg.min_richness,
         }
@@ -174,7 +216,8 @@ impl Simulation {
         if self.civ_encounter(probe_id, &star) {
             return; // probe was destroyed or expelled; encounter handled it
         }
-        if star.richness >= self.effective_min_richness() {
+        let local_policy = self.doctrine_at(star.x, star.y).policy;
+        if star.richness >= self.effective_min_richness(local_policy) {
             // Worth settling: build the autofactory. Richer systems
             // bootstrap faster.
             let build_years = self.cfg.factory_build_years / star.richness;
@@ -467,6 +510,9 @@ impl Simulation {
     fn launch_from(&mut self, from_id: StarId, probe_id: ProbeId) {
         let from = self.galaxy.star(from_id);
         let years = self.time.as_years();
+        // The launching colony obeys the doctrine whose light-front has
+        // reached *it* — a fresh broadcast doesn't govern the frontier yet.
+        let doctrine = self.doctrine_at(from.x, from.y);
         // Route around space we've *learned* is hostile. Unknown civs can't
         // be avoided — first contact is paid for in probes.
         let hostile: Vec<_> = self
@@ -478,7 +524,7 @@ impl Simulation {
                 Some(rel) => match c.disposition {
                     Disposition::Territorial | Disposition::Expansionist => true,
                     Disposition::Watcher => {
-                        let threshold = if self.cfg.respect_warnings {
+                        let threshold = if doctrine.respect_warnings {
                             WATCHER_WARN_AT
                         } else {
                             WATCHER_STRIKE_AT
@@ -494,8 +540,8 @@ impl Simulation {
             .get(&probe_id)
             .map(|p| p.rejected.as_slice())
             .unwrap_or(&[]);
-        let policy = self.cfg.policy;
-        let min_rich = self.effective_min_richness();
+        let policy = doctrine.policy;
+        let min_rich = self.effective_min_richness(policy);
         let from_radial = (from.x * from.x + from.y * from.y).sqrt();
         let target = self.galaxy.best_star(
             &from,
@@ -660,6 +706,9 @@ impl Simulation {
                 rel.colonies_lost_to as u64,
             ]);
         }
+        for (sent, d) in &self.doctrine_history {
+            acc = hash_n(&[acc, sent.0, d.policy as u64, d.respect_warnings as u64]);
+        }
         acc
     }
 }
@@ -683,6 +732,7 @@ pub struct SaveGame {
     colonies: Vec<Colony>,
     claimed: Vec<StarId>,
     relations: Vec<(CivKey, CivRelation)>,
+    doctrine_history: Vec<(SimTime, Doctrine)>,
     reports: Vec<Report>,
     stats: SimStats,
 }
@@ -699,6 +749,7 @@ impl Simulation {
             colonies: self.colonies.values().cloned().collect(),
             claimed: self.claimed.iter().copied().collect(),
             relations: self.relations.iter().map(|(k, v)| (*k, *v)).collect(),
+            doctrine_history: self.doctrine_history.clone(),
             reports: self.reports.clone(),
             stats: self.stats,
         }
@@ -718,6 +769,7 @@ impl Simulation {
             colonies: save.colonies.into_iter().map(|c| (c.star, c)).collect(),
             claimed: save.claimed.into_iter().collect(),
             relations: save.relations.into_iter().collect(),
+            doctrine_history: save.doctrine_history,
             reports: save.reports,
             stats: save.stats,
             cfg: save.cfg,

@@ -24,6 +24,8 @@ pub enum ReportKind {
     ProbeKilled,
     /// A colony destroyed by a civilization.
     ColonyLost,
+    /// A new standing order broadcast from Sol.
+    DoctrineChange,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

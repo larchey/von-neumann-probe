@@ -93,7 +93,9 @@ See [DESIGN.md](DESIGN.md) for gameplay direction and
 - [x] Expansion doctrines (`nearest` / `richest` / `outward`, `--bold`)
 - [x] Save/load with bit-identical resume (digest-verified)
 - [x] ASCII galaxy chart (`--map`)
-- [ ] Interactive mode: change doctrine mid-run, respond to first contact
+- [x] Interactive mission-control REPL (`--interactive`): doctrine
+  broadcasts propagate at *c* — the frontier obeys your old orders until
+  the light-front of the new ones arrives
 - [ ] Spec investment choices (speed vs reliability vs fabrication)
 - [ ] Aggregation layer for 10⁸+ probes (statistical colonies + report pruning)
 - [ ] Player-visible lag: strategic view built only from received reports
