@@ -1,10 +1,12 @@
 //! vnp — headless runner for the von Neumann probe engine.
 //!
-//! Usage: vnp [--seed N] [--years N] [--step N] [--reports N]
+//! Two modes: a batch run that prints an expansion table, the tail of the
+//! message log, the family tree, and a mission scorecard (`vnp --help`);
+//! and `vnp -i`, the mission-control REPL where you actually play.
 //!
-//! Runs the simulation and prints a decade-by-decade expansion table plus
-//! the tail of mission control's message log. The log honors light lag:
-//! you only see what a signal could physically have delivered to Sol.
+//! Everything shown to the player honors light lag — the log and the
+//! `map` command contain only what a signal could physically have
+//! delivered to Sol by now. `map all` is the omniscient debug view.
 
 use vn_engine::sim::{Doctrine, Simulation};
 use vn_engine::time::SimTime;
@@ -28,9 +30,11 @@ struct Args {
 fn parse_args() -> Args {
     let mut args = Args {
         seed: 42,
-        years: 500.0,
-        step: 25.0,
-        reports: 20,
+        // Long enough to show the whole arc: expansion, first contact,
+        // lineages splitting off, and the first secessions.
+        years: 3000.0,
+        step: 250.0,
+        reports: 12,
         policy: TargetPolicy::Nearest,
         bold: false,
         save: None,
@@ -77,13 +81,25 @@ fn parse_args() -> Args {
             "--map" => args.map = true,
             "--interactive" | "-i" => args.interactive = true,
             "--help" | "-h" => {
-                println!(
-                    "vnp [--seed N] [--years N] [--step N] [--reports N] \
-                     [--policy nearest|richest|outward] [--invest speed|fab|rel] \
-                     [--bold] [--save FILE] [--load FILE] [--map]"
-                );
-                println!("  --bold   ignore Watcher warnings (colonize until they shoot)");
-                println!("  --years  with --load: additional years to simulate");
+                println!("vnp — von Neumann probe expansion simulator\n");
+                println!("  -i, --interactive   play it: the mission control REPL");
+                println!("      --years N       simulated years (default 3000; with --load, additional)");
+                println!("      --step N        years per table row (default 250)");
+                println!("      --seed N        galaxy seed (default 42)");
+                println!("      --reports N     tail of the message log to print (default 12)");
+                println!("      --map           draw the galaxy chart at the end");
+                println!("      --save/--load F save to / resume from a file\n");
+                println!("  doctrine (broadcast from Sol; propagates at lightspeed):");
+                println!("      --policy P      nearest | richest | outward | survey");
+                println!("                        nearest  dense consolidation");
+                println!("                        richest  settle only good systems");
+                println!("                        outward  race the frontier outward");
+                println!("                        survey   chase the systems likeliest to hold life");
+                println!("      --invest A      speed | fab | rel — engineer this into every");
+                println!("                        replica, at a cost in material per probe");
+                println!("      --bold          ignore Watcher warnings until they shoot\n");
+                println!("  try:  vnp -i");
+                println!("        vnp --policy survey --years 8000 --map");
                 std::process::exit(0);
             }
             other => {
@@ -213,20 +229,12 @@ fn main() {
     scorecard(&sim);
 
     println!(
-        "\nanomalies salvaged: {} | mean colony richness: {:.3}",
+        "\nanomalies salvaged: {} | mean colony richness: {:.3} | {} events | digest {:016x}",
         sim.stats.anomalies_salvaged,
-        sim.mean_colony_richness()
-    );
-    println!(
-        "{} events | {} probes built | {} lost in transit | {} killed by civs | {} colonies destroyed | digest {:016x}",
+        sim.mean_colony_richness(),
         sim.stats.events_handled,
-        sim.stats.probes_built,
-        sim.stats.probes_lost,
-        sim.stats.probes_killed,
-        sim.stats.colonies_lost,
         sim.digest()
     );
-
     if let Some(path) = &args.save {
         match std::fs::write(path, sim.to_json()) {
             Ok(()) => println!("saved to {path}"),
@@ -239,7 +247,14 @@ fn main() {
 /// broadcasts crawl outward at c, so the frontier keeps obeying old orders
 /// for decades after you change your mind.
 fn interactive(sim: &mut Simulation) {
-    println!("mission control online — Y{:.1}. type 'help' for commands.", sim.time.as_years());
+    println!(
+        "Mission control online, Y{:.1}. One probe at Sol; the galaxy is unexplored.",
+        sim.time.as_years()
+    );
+    println!(
+        "Everything you see here is light-lagged: the frontier reports what *was*.\n\
+         Try 'next' to advance until something reaches you. 'help' lists commands."
+    );
     let stdin = std::io::stdin();
     let mut last_recv = sim.time;
     loop {
