@@ -68,6 +68,10 @@ pub struct SimStats {
     pub independent_lines: u32,
     /// Replicas built under a directed-investment doctrine.
     pub directed_replicas: u32,
+    /// Garden worlds found by lines that no longer report to Sol. They
+    /// exist; you will never hear about them. This is what secession
+    /// actually costs.
+    pub garden_worlds_unreported: u32,
 }
 
 /// Our accumulated relationship with a civilization we've met.
@@ -207,6 +211,16 @@ impl Simulation {
         id
     }
 
+    /// Does this probe's line still send its telemetry home? Seceded lines
+    /// go dark: they keep exploring and building, but Sol stops hearing
+    /// about any of it, so their space becomes a hole in the known map.
+    fn reports_home(&self, probe: ProbeId) -> bool {
+        match self.probes.get(&probe).and_then(|p| self.lineages.get(&p.lineage)) {
+            Some(l) => !l.independent,
+            None => true,
+        }
+    }
+
     /// The doctrine actually governing a probe: Sol's orders if the line
     /// still answers to Sol, its own if it has seceded.
     fn governing_doctrine(&self, line: LineageId, x: f64, y: f64) -> Doctrine {
@@ -342,10 +356,12 @@ impl Simulation {
         } else {
             // Barren system: refuel from volatiles and move on.
             self.stats.systems_rejected += 1;
-            self.emit(&star, ReportKind::SystemRejected, format!(
-                "{} surveyed: richness {:.2}, below viability. Moving on.",
-                self.galaxy.name(star.id), star.richness
-            ));
+            if self.reports_home(probe_id) {
+                self.emit(&star, ReportKind::SystemRejected, format!(
+                    "{} surveyed: richness {:.2}, below viability. Moving on.",
+                    self.galaxy.name(star.id), star.richness
+                ));
+            }
             if let Some(probe) = self.probes.get_mut(&probe_id) {
                 probe.rejected.push(star_id);
             }
@@ -363,6 +379,12 @@ impl Simulation {
         let name = self.galaxy.name(star.id);
         match anomaly {
             Anomaly::GardenWorld => {
+                // A world found by a line that stopped reporting is a world
+                // Sol never learns about.
+                if !self.reports_home(probe_id) {
+                    self.stats.garden_worlds_unreported += 1;
+                    return false;
+                }
                 self.stats.garden_worlds += 1;
                 let line = self
                     .probes
@@ -706,11 +728,13 @@ impl Simulation {
         if let Some(l) = line.and_then(|l| self.lineages.get_mut(&l)) {
             l.colonies_founded += 1;
         }
-        self.emit(&star, ReportKind::ColonyFounded, format!(
-            "Colony established at {} (richness {:.2}) by the {} line. \
-             Autofactory online; {} replicas budgeted.",
-            self.galaxy.name(star.id), star.richness, line_name, launches
-        ));
+        if self.reports_home(founder) {
+            self.emit(&star, ReportKind::ColonyFounded, format!(
+                "Colony established at {} (richness {:.2}) by the {} line. \
+                 Autofactory online; {} replicas budgeted.",
+                self.galaxy.name(star.id), star.richness, line_name, launches
+            ));
+        }
         self.queue
             .schedule(now.plus_years(interval), Event::ReplicaComplete { star: star_id });
     }
@@ -936,11 +960,13 @@ impl Simulation {
             self.queue
                 .schedule(arrives, Event::ProbeArrival { probe: probe_id, star: target.id });
         }
-        self.emit(&from, ReportKind::ProbeLaunched, format!(
-            "Gen-{} probe departs {} for {} ({:.1} ly, ETA {:.1} yr at {:.2}c).",
-            self.probes[&probe_id].generation, self.galaxy.name(from.id), self.galaxy.name(target.id),
-            dist, travel_years, spec.cruise_speed_c
-        ));
+        if self.reports_home(probe_id) {
+            self.emit(&from, ReportKind::ProbeLaunched, format!(
+                "Gen-{} probe departs {} for {} ({:.1} ly, ETA {:.1} yr at {:.2}c).",
+                self.probes[&probe_id].generation, self.galaxy.name(from.id), self.galaxy.name(target.id),
+                dist, travel_years, spec.cruise_speed_c
+            ));
+        }
     }
 
     // ---- observation ----------------------------------------------------

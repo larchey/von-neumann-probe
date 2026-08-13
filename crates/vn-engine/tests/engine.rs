@@ -110,6 +110,37 @@ fn survey_doctrine_finds_more_life_but_loses_the_empire() {
     );
 }
 
+/// The payoff of the whole design: discoveries only count if the finder
+/// still talks to you. Run long enough and the aggressive search doctrine
+/// loses to the patient one, because it stops hearing from its own probes.
+#[test]
+fn losing_control_costs_you_the_discoveries() {
+    let run = |policy, years: f64| {
+        let mut sim = Simulation::new(SimConfig { policy, ..SimConfig::default() });
+        sim.run_until(SimTime::from_years(years));
+        sim
+    };
+    let survey = run(TargetPolicy::Survey, 8000.0);
+    let nearest = run(TargetPolicy::Nearest, 8000.0);
+
+    // Survey genuinely finds far more life...
+    let total = |s: &Simulation| s.stats.garden_worlds + s.stats.garden_worlds_unreported;
+    assert!(
+        total(&survey) > total(&nearest),
+        "survey should find more worlds overall: {} vs {}",
+        total(&survey),
+        total(&nearest)
+    );
+    // ...and yet reports fewer of them home, because its descendants left.
+    assert!(
+        survey.stats.garden_worlds < nearest.stats.garden_worlds,
+        "by Y8000 survey should report fewer worlds despite finding more: {} vs {}",
+        survey.stats.garden_worlds,
+        nearest.stats.garden_worlds
+    );
+    assert!(survey.stats.garden_worlds_unreported > survey.stats.garden_worlds);
+}
+
 #[test]
 fn civs_are_deterministic_and_respect_sol_exclusion() {
     let f = CivField::new(42, 16.0);

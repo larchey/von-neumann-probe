@@ -400,6 +400,12 @@ fn scorecard(sim: &Simulation) {
         sim.stats.garden_worlds as f64 / years * 100.0,
         surveyed / sim.stats.garden_worlds.max(1) as u64
     );
+    if sim.stats.garden_worlds_unreported > 0 {
+        println!(
+            "║   ...and {} more found by lines that no longer report to Sol",
+            sim.stats.garden_worlds_unreported
+        );
+    }
     println!("║ systems surveyed         {:>10}", surveyed);
     println!(
         "║ colonies / population    {:>10} / {}",
