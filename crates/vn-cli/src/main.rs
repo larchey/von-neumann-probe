@@ -17,6 +17,8 @@ struct Args {
     reports: usize,
     policy: TargetPolicy,
     bold: bool,
+    save: Option<String>,
+    load: Option<String>,
 }
 
 fn parse_args() -> Args {
@@ -27,6 +29,8 @@ fn parse_args() -> Args {
         reports: 20,
         policy: TargetPolicy::Nearest,
         bold: false,
+        save: None,
+        load: None,
     };
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {
@@ -48,12 +52,15 @@ fn parse_args() -> Args {
                 }
             }
             "--bold" => args.bold = true,
+            "--save" => args.save = Some(grab()),
+            "--load" => args.load = Some(grab()),
             "--help" | "-h" => {
                 println!(
                     "vnp [--seed N] [--years N] [--step N] [--reports N] \
-                     [--policy nearest|richest|outward] [--bold]"
+                     [--policy nearest|richest|outward] [--bold] [--save FILE] [--load FILE]"
                 );
-                println!("  --bold  ignore Watcher warnings (colonize until they shoot)");
+                println!("  --bold   ignore Watcher warnings (colonize until they shoot)");
+                println!("  --years  with --load: additional years to simulate");
                 std::process::exit(0);
             }
             other => {
@@ -67,13 +74,36 @@ fn parse_args() -> Args {
 
 fn main() {
     let args = parse_args();
-    let cfg = SimConfig {
-        seed: args.seed,
-        policy: args.policy,
-        respect_warnings: !args.bold,
-        ..SimConfig::default()
+    let mut sim = match &args.load {
+        Some(path) => {
+            let json = std::fs::read_to_string(path).unwrap_or_else(|e| {
+                eprintln!("cannot read save {path}: {e}");
+                std::process::exit(1);
+            });
+            let sim = Simulation::from_json(&json).unwrap_or_else(|e| {
+                eprintln!("corrupt save {path}: {e}");
+                std::process::exit(1);
+            });
+            println!(
+                "resumed from {path} at Y{:.1} — {} probes, {} colonies",
+                sim.time.as_years(),
+                sim.probes.len(),
+                sim.colonies.len()
+            );
+            sim
+        }
+        None => Simulation::new(SimConfig {
+            seed: args.seed,
+            policy: args.policy,
+            respect_warnings: !args.bold,
+            ..SimConfig::default()
+        }),
     };
-    println!("von Neumann probe expansion — seed {}, {} years", cfg.seed, args.years);
+    let cfg = sim.cfg.clone();
+    println!(
+        "von Neumann probe expansion — seed {}, {} years",
+        cfg.seed, args.years
+    );
     println!(
         "cruise {:.2}c | replication {:.1} yr | max hop {:.0} ly | drift ±{:.0}% | doctrine {:?}{}\n",
         cfg.cruise_speed_c,
@@ -84,15 +114,15 @@ fn main() {
         if cfg.respect_warnings { "" } else { " (bold)" }
     );
 
-    let mut sim = Simulation::new(cfg);
-
     println!(
         "{:>6}  {:>7}  {:>8}  {:>9}  {:>9}  {:>7}  {:>6}  {:>6}  {:>7}",
         "year", "probes", "transit", "colonies", "frontier", "max gen", "lost", "killed", "civs"
     );
-    let mut year = 0.0;
-    while year < args.years {
-        year = (year + args.step).min(args.years);
+    let start_year = sim.time.as_years();
+    let end_year = start_year + args.years;
+    let mut year = start_year;
+    while year < end_year {
+        year = (year + args.step).min(end_year);
         sim.run_until(SimTime::from_years(year));
         println!(
             "{:>6.0}  {:>7}  {:>8}  {:>9}  {:>7.1}ly  {:>7}  {:>6}  {:>6}  {:>7}",
@@ -108,7 +138,7 @@ fn main() {
         );
     }
 
-    let now = SimTime::from_years(args.years);
+    let now = SimTime::from_years(end_year);
     let received = sim.reports_received_by(now);
     println!(
         "\n─── mission control log (light-lagged; {} of {} signals received) ───",
@@ -151,4 +181,11 @@ fn main() {
         sim.stats.colonies_lost,
         sim.digest()
     );
+
+    if let Some(path) = &args.save {
+        match std::fs::write(path, sim.to_json()) {
+            Ok(()) => println!("saved to {path}"),
+            Err(e) => eprintln!("failed to save {path}: {e}"),
+        }
+    }
 }

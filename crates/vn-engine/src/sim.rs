@@ -661,3 +661,68 @@ impl Simulation {
 fn colony_probes(colonies: &BTreeMap<StarId, Colony>, star: StarId) -> u32 {
     colonies.get(&star).map(|c| c.probes_built).unwrap_or(0)
 }
+
+/// Serializable snapshot of a `Simulation`. Maps are flattened to vectors
+/// because their keys are structs (JSON allows only string keys); every
+/// other field round-trips exactly — RNG state, event queue, reports — so
+/// a loaded game continues bit-identically (see the save/load test).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SaveGame {
+    cfg: SimConfig,
+    time: SimTime,
+    queue: EventQueue,
+    rng: SplitMix64,
+    next_probe_id: u64,
+    probes: Vec<Probe>,
+    colonies: Vec<Colony>,
+    claimed: Vec<StarId>,
+    relations: Vec<(CivKey, CivRelation)>,
+    reports: Vec<Report>,
+    stats: SimStats,
+}
+
+impl Simulation {
+    pub fn to_save(&self) -> SaveGame {
+        SaveGame {
+            cfg: self.cfg.clone(),
+            time: self.time,
+            queue: self.queue.clone(),
+            rng: self.rng.clone(),
+            next_probe_id: self.next_probe_id,
+            probes: self.probes.values().cloned().collect(),
+            colonies: self.colonies.values().cloned().collect(),
+            claimed: self.claimed.iter().copied().collect(),
+            relations: self.relations.iter().map(|(k, v)| (*k, *v)).collect(),
+            reports: self.reports.clone(),
+            stats: self.stats,
+        }
+    }
+
+    pub fn from_save(save: SaveGame) -> Self {
+        let galaxy = Galaxy::new(save.cfg.seed, save.cfg.cell_size_ly);
+        let civ_field = CivField::new(save.cfg.seed, save.cfg.cell_size_ly);
+        Self {
+            galaxy,
+            civ_field,
+            time: save.time,
+            queue: save.queue,
+            rng: save.rng,
+            next_probe_id: save.next_probe_id,
+            probes: save.probes.into_iter().map(|p| (p.id, p)).collect(),
+            colonies: save.colonies.into_iter().map(|c| (c.star, c)).collect(),
+            claimed: save.claimed.into_iter().collect(),
+            relations: save.relations.into_iter().collect(),
+            reports: save.reports,
+            stats: save.stats,
+            cfg: save.cfg,
+        }
+    }
+
+    pub fn to_json(&self) -> String {
+        serde_json::to_string(&self.to_save()).expect("save serialization cannot fail")
+    }
+
+    pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
+        Ok(Self::from_save(serde_json::from_str(json)?))
+    }
+}

@@ -123,6 +123,22 @@ fn first_contact_eventually_happens() {
 }
 
 #[test]
+fn save_load_roundtrip_continues_bit_identically() {
+    let mut a = Simulation::new(SimConfig::default());
+    a.run_until(SimTime::from_years(300.0));
+
+    let json = a.to_json();
+    let mut b = Simulation::from_json(&json).expect("save should parse");
+    assert_eq!(a.digest(), b.digest(), "loaded state must match saved state");
+
+    // The true test: both timelines must stay identical *after* the load,
+    // which requires RNG state and the event queue to round-trip exactly.
+    a.run_until(SimTime::from_years(800.0));
+    b.run_until(SimTime::from_years(800.0));
+    assert_eq!(a.digest(), b.digest(), "post-load divergence — save is lossy");
+}
+
+#[test]
 fn running_in_chunks_matches_one_shot() {
     let mut a = Simulation::new(SimConfig::default());
     a.run_until(SimTime::from_years(400.0));

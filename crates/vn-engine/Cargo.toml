@@ -6,3 +6,5 @@ license.workspace = true
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
+# float_roundtrip: exact f64 parsing, required for bit-identical save/load
+serde_json = { version = "1.0", features = ["float_roundtrip"] }
