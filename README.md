@@ -46,6 +46,24 @@ Everything in the design flows from that:
 | Finite accessible material | Colonies saturate and shut down their replication lines |
 | No real-time control | You set doctrine (`--policy`, `--bold`); every colony executes it autonomously |
 
+## Your descendants stop being you
+
+Every replica mutates its parent's spec by ±3%. That sounds like flavor;
+over deep time it's the whole game.
+
+- A probe that founds a colony while ≥12% divergent from its line's
+  template **establishes a new named line** — drift becomes a family tree.
+- A line ≥30% divergent from the original Sol template, founded beyond
+  200 ly, **secedes**: out there your orders arrive centuries stale and
+  nothing enforces them. It keeps replicating, just not for you.
+- Nothing in the code scores fitness — but lines that travel and replicate
+  faster found more colonies, so **selection happens anyway**. By Y12000
+  the largest lines are almost all breakaways, running +60% to +200%
+  cruise speed.
+
+The share of your empire that still answers to Sol decays on its own:
+**100% at Y3000, 92% at Y6000, 21% at Y12000.**
+
 ## You are not alone
 
 The deep galaxy is procedurally inhabited (never within 120 ly of Sol —
@@ -96,10 +114,16 @@ See [DESIGN.md](DESIGN.md) for gameplay direction and
 - [x] Interactive mission-control REPL (`--interactive`): doctrine
   broadcasts propagate at *c* — the frontier obeys your old orders until
   the light-front of the new ones arrives
-- [ ] Spec investment choices (speed vs reliability vs fabrication)
-- [ ] Aggregation layer for 10⁸+ probes (statistical colonies + report pruning)
-- [ ] Player-visible lag: strategic view built only from received reports
-- [ ] TUI map view; graphical frontend later
+- [x] Player-visible lag: the `map` command draws only what signals have
+  physically delivered to Sol
+- [x] Named lineages: drift forks the family tree, and distant divergent
+  lines secede and stop taking orders
+- [x] Survey anomalies: garden worlds, derelicts, precursor caches, hazards
+- [x] Deep-time cold-state compression (20k years in 13.9s / 244 MB)
+- [ ] Spec investment: steer evolution instead of only watching it
+- [ ] Garden-world doctrine (trade growth for discovery)
+- [ ] Statistical aggregation for 10⁸+ probes
+- [ ] TUI frontend: live map, scrolling log, doctrine panel
 
 ## License
 

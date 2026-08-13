@@ -84,27 +84,66 @@ physically-honest layer. Every event emits a `Report` stamped with
 This is cheap (one Vec push per event) and gives the game its signature
 feeling: the frontier you see is the frontier as it was.
 
+## Procedural civilizations (`civs.rs`)
+
+Civs use the same lazy-formula discipline as stars, which is what keeps
+them free:
+
+- **Existence and disposition** are hashed from (seed, region) over a grid
+  10× the star-cell size, with a 120 ly exclusion zone around Sol.
+- **Territory is closed-form in time** — `radius0 + growth × years`. An
+  Expansionist's border at year 40,000 costs one multiply, not 40,000
+  ticks of simulated expansion.
+- **Reactions are scheduled events.** When an Expansionist's border will
+  eventually reach one of your colonies, the overrun is computed
+  analytically and scheduled for that exact year. Nothing polls.
+
+So a galaxy full of growing empires costs nothing until it touches you.
+
+## Cold-state compression (deep time)
+
+Dormant probes — saturated founders, dead-end arrivals — are historical
+record, not simulation participants. They're archived as per-colony
+counts (`Colony::dormant`) and dropped from the hot map, so the probe map
+scales with the *frontier* rather than with history. `population()`
+reports active + archived. Report history is pruned past 400k entries,
+keeping every significant signal (contacts, losses, secessions, doctrine)
+and dropping the oldest routine traffic.
+
+Measured effect on a 20,000-year run: 47 s → 13.9 s, 244 MB peak, while
+simulating 854k population across 124k colonies and 206 known civs.
+
 ## Scaling roadmap
 
 Current design is comfortable to ~10⁶–10⁷ probes. Beyond that:
 
-1. **Archive dormant individuals.** Settled probes at saturated colonies
-   are historical record, not simulation participants — move them to an
-   append-only archive keyed by colony; keep only active probes in the hot
-   map.
-2. **Aggregate colonies statistically.** Interior regions produce no
+1. **Aggregate colonies statistically.** Interior regions produce no
    events; their record can be compressed to per-region counts +
    generation histograms, regenerable on demand.
-3. **Per-cell claim index.** `nearest_star` currently probes the claim set
+2. **Per-cell claim index.** `best_star` currently probes the claim set
    per candidate; a `BTreeMap<(i32,i32), SmallVec<StarId>>` sidecar makes
    ring scans skip fully-claimed cells.
-4. **Event-queue sharding** by spatial region if the heap ever dominates —
+3. **Event-queue sharding** by spatial region if the heap ever dominates —
    regions only interact through probe transfers, which are themselves
    events.
 
 None of these change the architecture; they're all compression of cold
 state. That's the property that makes the engine "infinitely" scalable:
 activity lives only at the frontier, and the frontier is a thin shell.
+
+## Gotchas worth remembering
+
+- **serde_json needs `float_roundtrip`.** Its default f64 parsing is
+  fast-path approximate (1 ULP off), which silently forked the timeline on
+  load. Invisible to inspection; caught only by the post-load digest test.
+- **Fork checks belong at colony founding, not per probe.** Every replica
+  is a mutation of one founder's spec, so a per-probe divergence check
+  makes a near-threshold founder spawn a new lineage with nearly every
+  child (3457 lines by Y6000 instead of 232).
+- **Ring search must scan every cell within range.** `best_star` takes an
+  arbitrary scoring function, so the old "stop once a candidate can't be
+  beaten" early exit (valid only for distance scoring) was replaced with a
+  bound on rings that could contain an in-range star.
 
 ## Crate layout
 
@@ -114,11 +153,13 @@ crates/
     src/lib.rs        # SimConfig + module docs
     src/time.rs       # SimTime (u64 seconds)
     src/rng.rs        # splitmix64: stateless hashing + forked streams
-    src/galaxy.rs     # lazy procedural starfield
+    src/galaxy.rs     # lazy procedural starfield + anomalies
+    src/civs.rs       # procedural civilizations (lazy, closed-form)
     src/probe.rs      # Probe, ProbeSpec (hereditary, drifting)
+    src/lineage.rs    # named descendant families, forking, secession
     src/events.rs     # Event + deterministic BinaryHeap queue
     src/report.rs     # light-lagged player-knowledge layer
     src/sim.rs        # Simulation: state + event handlers
-    tests/engine.rs   # determinism, expansion, light-lag invariants
-  vn-cli/             # headless runner (binary: vnp)
+    tests/engine.rs   # determinism, expansion, light-lag, civs, lineages
+  vn-cli/             # headless runner + mission-control REPL (bin: vnp)
 ```
