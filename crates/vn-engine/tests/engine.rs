@@ -2,7 +2,7 @@ use vn_engine::civs::{CivField, SOL_EXCLUSION_LY};
 use vn_engine::galaxy::{Galaxy, StarId};
 use vn_engine::sim::Simulation;
 use vn_engine::time::SimTime;
-use vn_engine::SimConfig;
+use vn_engine::{SimConfig, TargetPolicy};
 
 #[test]
 fn galaxy_generation_is_stable() {
@@ -62,6 +62,24 @@ fn light_lag_is_respected() {
     for r in sim.reports_received_by(now) {
         assert!(r.received_at <= now);
     }
+}
+
+#[test]
+fn policies_change_history() {
+    let run = |policy| {
+        let mut sim = Simulation::new(SimConfig { policy, ..SimConfig::default() });
+        sim.run_until(SimTime::from_years(600.0));
+        (sim.digest(), sim.frontier_radius_ly(), sim.colonies.len())
+    };
+    let (dn, _fn_, cn) = run(TargetPolicy::Nearest);
+    let (dr, _fr, cr) = run(TargetPolicy::Richest);
+    let (do_, fo, co) = run(TargetPolicy::Outward);
+    assert_ne!(dn, dr);
+    assert_ne!(dn, do_);
+    assert_ne!(dr, do_);
+    // Every doctrine must still actually expand.
+    assert!(cn >= 5 && cr >= 5 && co >= 5);
+    assert!(fo > 10.0);
 }
 
 #[test]

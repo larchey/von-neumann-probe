@@ -29,6 +29,19 @@ pub mod time;
 
 use serde::{Deserialize, Serialize};
 
+/// Expansion doctrine: how a colony's children choose their targets.
+/// This is *policy set in advance* — the probes execute it autonomously,
+/// because by the time you could veto a launch, it happened decades ago.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TargetPolicy {
+    /// Minimize hop distance; dense, consolidated growth.
+    Nearest,
+    /// Spend extra light-years to reach spectroscopically rich systems.
+    Richest,
+    /// Prefer hops that gain radial distance from Sol; race outward.
+    Outward,
+}
+
 /// Tunable parameters for a simulation run. All time values are in years,
 /// all distances in light-years, speeds in fractions of c.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -58,6 +71,11 @@ pub struct SimConfig {
     pub search_rings: i32,
     /// Std-dev-ish magnitude of per-generation spec mutation.
     pub drift: f64,
+    /// Expansion doctrine for target selection.
+    pub policy: TargetPolicy,
+    /// If true, stop colonizing a Watcher's space once they issue a formal
+    /// warning; if false, push on until they start shooting.
+    pub respect_warnings: bool,
 }
 
 impl Default for SimConfig {
@@ -75,6 +93,8 @@ impl Default for SimConfig {
             max_hop_ly: 25.0,
             search_rings: 12,
             drift: 0.03,
+            policy: TargetPolicy::Nearest,
+            respect_warnings: true,
         }
     }
 }

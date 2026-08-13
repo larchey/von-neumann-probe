@@ -8,17 +8,26 @@
 
 use vn_engine::sim::Simulation;
 use vn_engine::time::SimTime;
-use vn_engine::SimConfig;
+use vn_engine::{SimConfig, TargetPolicy};
 
 struct Args {
     seed: u64,
     years: f64,
     step: f64,
     reports: usize,
+    policy: TargetPolicy,
+    bold: bool,
 }
 
 fn parse_args() -> Args {
-    let mut args = Args { seed: 42, years: 500.0, step: 25.0, reports: 20 };
+    let mut args = Args {
+        seed: 42,
+        years: 500.0,
+        step: 25.0,
+        reports: 20,
+        policy: TargetPolicy::Nearest,
+        bold: false,
+    };
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {
         let mut grab = || it.next().unwrap_or_default();
@@ -27,8 +36,24 @@ fn parse_args() -> Args {
             "--years" => args.years = grab().parse().unwrap_or(args.years),
             "--step" => args.step = grab().parse().unwrap_or(args.step),
             "--reports" => args.reports = grab().parse().unwrap_or(args.reports),
+            "--policy" => {
+                args.policy = match grab().as_str() {
+                    "nearest" => TargetPolicy::Nearest,
+                    "richest" => TargetPolicy::Richest,
+                    "outward" => TargetPolicy::Outward,
+                    other => {
+                        eprintln!("unknown policy: {other} (nearest|richest|outward)");
+                        std::process::exit(2);
+                    }
+                }
+            }
+            "--bold" => args.bold = true,
             "--help" | "-h" => {
-                println!("vnp [--seed N] [--years N] [--step N] [--reports N]");
+                println!(
+                    "vnp [--seed N] [--years N] [--step N] [--reports N] \
+                     [--policy nearest|richest|outward] [--bold]"
+                );
+                println!("  --bold  ignore Watcher warnings (colonize until they shoot)");
                 std::process::exit(0);
             }
             other => {
@@ -42,14 +67,21 @@ fn parse_args() -> Args {
 
 fn main() {
     let args = parse_args();
-    let cfg = SimConfig { seed: args.seed, ..SimConfig::default() };
+    let cfg = SimConfig {
+        seed: args.seed,
+        policy: args.policy,
+        respect_warnings: !args.bold,
+        ..SimConfig::default()
+    };
     println!("von Neumann probe expansion — seed {}, {} years", cfg.seed, args.years);
     println!(
-        "cruise {:.2}c | replication {:.1} yr | max hop {:.0} ly | drift ±{:.0}%\n",
+        "cruise {:.2}c | replication {:.1} yr | max hop {:.0} ly | drift ±{:.0}% | doctrine {:?}{}\n",
         cfg.cruise_speed_c,
         cfg.replication_years,
         cfg.max_hop_ly,
-        cfg.drift * 100.0
+        cfg.drift * 100.0,
+        cfg.policy,
+        if cfg.respect_warnings { "" } else { " (bold)" }
     );
 
     let mut sim = Simulation::new(cfg);
@@ -109,8 +141,9 @@ fn main() {
         }
     }
 
+    println!("\nmean colony richness: {:.3}", sim.mean_colony_richness());
     println!(
-        "\n{} events | {} probes built | {} lost in transit | {} killed by civs | {} colonies destroyed | digest {:016x}",
+        "{} events | {} probes built | {} lost in transit | {} killed by civs | {} colonies destroyed | digest {:016x}",
         sim.stats.events_handled,
         sim.stats.probes_built,
         sim.stats.probes_lost,

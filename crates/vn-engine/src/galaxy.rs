@@ -108,27 +108,28 @@ impl Galaxy {
             .collect()
     }
 
-    /// Nearest star to `from` (excluding it) within `max_dist_ly` for which
-    /// `accept` returns true. Searches cells in expanding rings; fully
-    /// deterministic (fixed ring order, index order, distance tie-break by
-    /// StarId). Returns None if nothing acceptable is in range.
-    pub fn nearest_star<F: Fn(&Star) -> bool>(
+    /// Best-scoring star near `from` (excluding it) within `max_dist_ly`
+    /// for which `accept` returns true; lower score wins. Every cell that
+    /// could hold an in-range star is scanned (a star within d ly lies at
+    /// most ceil(d/cell)+1 rings out), so arbitrary scoring functions are
+    /// safe. Fully deterministic: fixed ring/index order, ties broken by
+    /// StarId. Returns None if nothing acceptable is in range.
+    pub fn best_star<F, S>(
         &self,
         from: &Star,
         max_dist_ly: f64,
         max_rings: i32,
         accept: F,
-    ) -> Option<Star> {
+        score: S,
+    ) -> Option<Star>
+    where
+        F: Fn(&Star) -> bool,
+        S: Fn(&Star, f64) -> f64,
+    {
         let (ocx, ocy) = self.cell_of(from.x, from.y);
+        let rings = max_rings.min((max_dist_ly / self.cell_size_ly).ceil() as i32 + 1);
         let mut best: Option<(f64, Star)> = None;
-        for r in 0..=max_rings {
-            // Once a candidate is found, stars in rings beyond
-            // (best_dist / cell + 1) cannot beat it.
-            if let Some((d, _)) = &best {
-                if (r - 1) as f64 * self.cell_size_ly > *d {
-                    break;
-                }
-            }
+        for r in 0..=rings {
             for (cx, cy) in ring_cells(ocx, ocy, r) {
                 for star in self.stars_in_cell(cx, cy) {
                     if star.id == from.id {
@@ -138,17 +139,29 @@ impl Galaxy {
                     if d > max_dist_ly || !accept(&star) {
                         continue;
                     }
+                    let s = score(&star, d);
                     let better = match &best {
                         None => true,
-                        Some((bd, bs)) => d < *bd || (d == *bd && star.id < bs.id),
+                        Some((bs, bstar)) => s < *bs || (s == *bs && star.id < bstar.id),
                     };
                     if better {
-                        best = Some((d, star));
+                        best = Some((s, star));
                     }
                 }
             }
         }
         best.map(|(_, s)| s)
+    }
+
+    /// Nearest acceptable star — `best_star` scored by distance.
+    pub fn nearest_star<F: Fn(&Star) -> bool>(
+        &self,
+        from: &Star,
+        max_dist_ly: f64,
+        max_rings: i32,
+        accept: F,
+    ) -> Option<Star> {
+        self.best_star(from, max_dist_ly, max_rings, accept, |_, d| d)
     }
 }
 

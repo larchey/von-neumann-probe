@@ -13,7 +13,7 @@ use crate::probe::{Probe, ProbeId, ProbeSpec, ProbeState};
 use crate::report::{Report, ReportKind};
 use crate::rng::SplitMix64;
 use crate::time::SimTime;
-use crate::SimConfig;
+use crate::{SimConfig, TargetPolicy};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -160,12 +160,21 @@ impl Simulation {
         }
     }
 
+    /// Doctrine-adjusted settlement bar: Richest doctrine refuses to
+    /// settle mediocre systems at all — fewer colonies, each faster.
+    fn effective_min_richness(&self) -> f64 {
+        match self.cfg.policy {
+            TargetPolicy::Richest => self.cfg.min_richness.max(0.7),
+            _ => self.cfg.min_richness,
+        }
+    }
+
     fn on_survey_complete(&mut self, probe_id: ProbeId, star_id: StarId) {
         let star = self.galaxy.star(star_id);
         if self.civ_encounter(probe_id, &star) {
             return; // probe was destroyed or expelled; encounter handled it
         }
-        if star.richness >= self.cfg.min_richness {
+        if star.richness >= self.effective_min_richness() {
             // Worth settling: build the autofactory. Richer systems
             // bootstrap faster.
             let build_years = self.cfg.factory_build_years / star.richness;
@@ -468,7 +477,14 @@ impl Simulation {
                 None => false,
                 Some(rel) => match c.disposition {
                     Disposition::Territorial | Disposition::Expansionist => true,
-                    Disposition::Watcher => rel.irritation >= WATCHER_STRIKE_AT,
+                    Disposition::Watcher => {
+                        let threshold = if self.cfg.respect_warnings {
+                            WATCHER_WARN_AT
+                        } else {
+                            WATCHER_STRIKE_AT
+                        };
+                        rel.irritation >= threshold
+                    }
                     Disposition::Extinct => false,
                 },
             })
@@ -478,14 +494,35 @@ impl Simulation {
             .get(&probe_id)
             .map(|p| p.rejected.as_slice())
             .unwrap_or(&[]);
-        let target = self.galaxy.nearest_star(
+        let policy = self.cfg.policy;
+        let min_rich = self.effective_min_richness();
+        let from_radial = (from.x * from.x + from.y * from.y).sqrt();
+        let target = self.galaxy.best_star(
             &from,
             self.cfg.max_hop_ly,
             self.cfg.search_rings,
             |s| {
-                !claimed.contains(&s.id)
+                // Long-range spectroscopy screens out clearly-barren
+                // systems, but its estimate carries error: borderline
+                // systems still get visited and sometimes rejected on
+                // arrival by the ground-truth survey.
+                s.richness >= min_rich - 0.12
+                    && !claimed.contains(&s.id)
                     && !rejected.contains(&s.id)
                     && !hostile.iter().any(|c| c.contains(s.x, s.y, years))
+            },
+            |s, d| match policy {
+                // Score is "effective light-years"; lower is better.
+                TargetPolicy::Nearest => d,
+                // A rich system is worth a detour: ~15 ly per point of
+                // spectroscopic richness estimate.
+                TargetPolicy::Richest => d - 15.0 * s.richness,
+                // Radial gain from Sol is the prize; a hop that flies
+                // outward is nearly free.
+                TargetPolicy::Outward => {
+                    let radial = (s.x * s.x + s.y * s.y).sqrt();
+                    d - 1.2 * (radial - from_radial)
+                }
             },
         );
         let Some(target) = target else {
@@ -560,6 +597,20 @@ impl Simulation {
                 (s.x * s.x + s.y * s.y).sqrt()
             })
             .fold(0.0, f64::max)
+    }
+
+    /// Mean richness across current colonies — the visible fingerprint of
+    /// a Richest-doctrine run.
+    pub fn mean_colony_richness(&self) -> f64 {
+        if self.colonies.is_empty() {
+            return 0.0;
+        }
+        let sum: f64 = self
+            .colonies
+            .keys()
+            .map(|id| self.galaxy.star(*id).richness)
+            .sum();
+        sum / self.colonies.len() as f64
     }
 
     pub fn max_generation(&self) -> u32 {
