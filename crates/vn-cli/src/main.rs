@@ -139,7 +139,7 @@ fn main() {
         println!(
             "{:>6.0}  {:>7}  {:>8}  {:>9}  {:>7.1}ly  {:>7}  {:>6}  {:>6}  {:>7}",
             year,
-            sim.probes.len(),
+            sim.population(),
             sim.probes_in_transit(),
             sim.colonies.len(),
             sim.frontier_radius_ly(),
@@ -333,7 +333,7 @@ fn status(sim: &Simulation) {
     println!(
         "Y{:>7.1} | {} probes ({} in transit) | {} colonies | frontier {:.1} ly | gen {} | {} lost, {} killed | {} civs known",
         sim.time.as_years(),
-        sim.probes.len(),
+        sim.population(),
         sim.probes_in_transit(),
         sim.colonies.len(),
         sim.frontier_radius_ly(),

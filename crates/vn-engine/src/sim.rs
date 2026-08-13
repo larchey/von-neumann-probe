@@ -28,6 +28,11 @@ pub struct Colony {
     /// material is exhausted (richness-scaled).
     pub launches_remaining: u32,
     pub probes_built: u32,
+    /// Probes powered down here forever (saturated founders, dead-end
+    /// arrivals). Archived as a count — they are record, not simulation,
+    /// which is what keeps the hot probe map frontier-sized. They die with
+    /// the colony if a civ strikes it.
+    pub dormant: u32,
 }
 
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
@@ -40,6 +45,12 @@ pub struct SimStats {
     pub probes_killed: u32,
     /// Colonies destroyed by civilizations.
     pub colonies_lost: u32,
+    /// Highest replication generation ever built (tracked here because
+    /// dormant probes are archived out of the map).
+    pub max_generation: u32,
+    /// Probes powered down at systems that never became colonies
+    /// (barren dead-ends); archived out of the hot map.
+    pub drifters: u32,
 }
 
 /// Our accumulated relationship with a civilization we've met.
@@ -231,6 +242,7 @@ impl Simulation {
                     founded_at: SimTime::ZERO, // set on FactoryOnline
                     founder: probe_id,
                     launches_remaining: 0,
+                    dormant: 0,
                     probes_built: 0,
                 },
             );
@@ -428,6 +440,7 @@ impl Simulation {
             founded_at: now,
             founder,
             launches_remaining: 0,
+            dormant: 0,
             probes_built: 0,
         });
         colony.founded_at = now;
@@ -466,6 +479,7 @@ impl Simulation {
         let mut mrng = self.rng.fork(crate::rng::hash_n(&[star_id.key(), self.stats.probes_built as u64]));
         let child_spec = parent_spec.mutate(&mut mrng, self.cfg.drift);
         let child_id = self.alloc_probe_id();
+        self.stats.max_generation = self.stats.max_generation.max(parent_gen + 1);
         self.probes.insert(
             child_id,
             Probe {
@@ -488,6 +502,12 @@ impl Simulation {
                 "{} has exhausted accessible material; replication line shut down after {} probes.",
                 self.galaxy.name(star.id), colony_probes(&self.colonies, star_id)
             ));
+            // The founder's work is done; archive it out of the hot map.
+            if self.probes.remove(&founder).is_some() {
+                if let Some(c) = self.colonies.get_mut(&star_id) {
+                    c.dormant += 1;
+                }
+            }
         }
     }
 
@@ -572,9 +592,13 @@ impl Simulation {
             },
         );
         let Some(target) = target else {
-            // Frontier dead end: stay dormant at the current system.
-            if let Some(p) = self.probes.get_mut(&probe_id) {
-                p.state = ProbeState::Settled { star: from_id };
+            // Frontier dead end: power down here forever. Archived as a
+            // count, not an entity — the hot map stays frontier-sized.
+            if self.probes.remove(&probe_id).is_some() {
+                match self.colonies.get_mut(&from_id) {
+                    Some(c) => c.dormant += 1,
+                    None => self.stats.drifters += 1,
+                }
             }
             return;
         };
@@ -624,6 +648,27 @@ impl Simulation {
             distance_ly: dist,
             text,
         });
+        // Bound log memory over deep time: drop the oldest routine
+        // traffic, keep every historically significant signal.
+        if self.reports.len() >= 400_000 {
+            let cutoff = self.reports.len() - 200_000;
+            let old: Vec<Report> = self.reports.drain(..cutoff).collect();
+            let mut kept: Vec<Report> = old
+                .into_iter()
+                .filter(|r| {
+                    matches!(
+                        r.kind,
+                        ReportKind::FirstContact
+                            | ReportKind::ColonyLost
+                            | ReportKind::CivWarning
+                            | ReportKind::XenoSalvage
+                            | ReportKind::DoctrineChange
+                    )
+                })
+                .collect();
+            kept.append(&mut self.reports);
+            self.reports = kept;
+        }
     }
 
     /// Reports that have physically reached Sol by `now`, in receive order.
@@ -660,7 +705,14 @@ impl Simulation {
     }
 
     pub fn max_generation(&self) -> u32 {
-        self.probes.values().map(|p| p.generation).max().unwrap_or(0)
+        self.stats.max_generation
+    }
+
+    /// Total living probes: active (hot map) + dormant (archived counts).
+    pub fn population(&self) -> u64 {
+        self.probes.len() as u64
+            + self.colonies.values().map(|c| c.dormant as u64).sum::<u64>()
+            + self.stats.drifters as u64
     }
 
     pub fn probes_in_transit(&self) -> usize {
@@ -691,7 +743,14 @@ impl Simulation {
             ]);
         }
         for (id, c) in &self.colonies {
-            acc = hash_n(&[acc, id.key(), c.founded_at.0, c.launches_remaining as u64]);
+            acc = hash_n(&[
+                acc,
+                id.key(),
+                c.founded_at.0,
+                c.launches_remaining as u64,
+                c.dormant as u64,
+                c.probes_built as u64,
+            ]);
         }
         for id in &self.claimed {
             acc = hash_n(&[acc, id.key()]);

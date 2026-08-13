@@ -44,7 +44,7 @@ fn expansion_actually_happens() {
     let mut sim = Simulation::new(SimConfig::default());
     sim.run_until(SimTime::from_years(500.0));
     assert!(sim.colonies.len() >= 5, "expected ≥5 colonies, got {}", sim.colonies.len());
-    assert!(sim.probes.len() > sim.colonies.len());
+    assert!(sim.population() > sim.colonies.len() as u64);
     assert!(sim.frontier_radius_ly() > 10.0);
     assert!(sim.max_generation() >= 2);
 }
