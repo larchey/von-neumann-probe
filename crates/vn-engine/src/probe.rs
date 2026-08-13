@@ -5,6 +5,7 @@
 //! from the founder's — replication is imperfect at interstellar remove.
 
 use crate::galaxy::StarId;
+use crate::lineage::LineageId;
 use crate::rng::SplitMix64;
 use crate::time::SimTime;
 use serde::{Deserialize, Serialize};
@@ -61,6 +62,8 @@ pub struct Probe {
     pub id: ProbeId,
     /// Replication generation; Sol's seed probe is generation 0.
     pub generation: u32,
+    /// The named family this probe belongs to.
+    pub lineage: LineageId,
     pub spec: ProbeSpec,
     pub state: ProbeState,
     /// Systems this probe surveyed and rejected (avoid revisiting).

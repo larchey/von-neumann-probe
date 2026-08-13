@@ -170,6 +170,9 @@ fn main() {
         render_map(&sim);
     }
 
+    println!();
+    show_lineages(&sim, 10);
+
     if !sim.relations.is_empty() {
         println!("\n─── known civilizations ───");
         for (key, rel) in &sim.relations {
@@ -255,6 +258,7 @@ fn interactive(sim: &mut Simulation) {
             ["status"] => status(sim),
             ["map"] => render_known_map(sim),
             ["map", "all"] => render_map(sim),
+            ["lines"] => show_lineages(sim, 15),
             ["civs"] => {
                 if sim.relations.is_empty() {
                     println!("no contact with other civilizations yet.");
@@ -319,6 +323,7 @@ fn interactive(sim: &mut Simulation) {
                 println!("map              chart of what signals have reached Sol (your actual knowledge)");
                 println!("map all          omniscient ground-truth chart (debug)");
                 println!("civs             known civilizations");
+                println!("lines            your descendant lineages and how they've drifted");
                 println!("log <n>          last n received signals");
                 println!("policy <p>       broadcast doctrine: nearest|richest|outward (travels at c!)");
                 println!("bold on|off      ignore/respect Watcher warnings (travels at c!)");
@@ -329,6 +334,51 @@ fn interactive(sim: &mut Simulation) {
             _ => println!("unknown command; 'help' lists commands."),
         }
     }
+}
+
+/// The most productive lineages, with how far each has drifted from the
+/// original Sol template — the empire's family tree.
+fn show_lineages(sim: &Simulation, n: usize) {
+    let root = sim.lineages.values().next();
+    let root_spec = match root {
+        Some(r) => r.template,
+        None => return,
+    };
+    let mut lines: Vec<_> = sim.lineages.values().collect();
+    lines.sort_by(|a, b| {
+        b.probes_built
+            .cmp(&a.probes_built)
+            .then(a.id.0.cmp(&b.id.0))
+    });
+    println!(
+        "{} lineages descended from the seed probe; top {}:",
+        sim.lineages.len(),
+        n.min(lines.len())
+    );
+    println!(
+        "{:<12} {:<12} {:>6} {:>8} {:>9} {:>7} {:>6} {:>6}",
+        "line", "from", "born", "probes", "colonies", "speed", "fab", "rel"
+    );
+    for l in lines.into_iter().take(n) {
+        let parent = l
+            .parent
+            .and_then(|p| sim.lineages.get(&p))
+            .map(|p| p.name.as_str())
+            .unwrap_or("—");
+        let pct = |v: f64, base: f64| (v / base - 1.0) * 100.0;
+        println!(
+            "{:<12} {:<12} {:>6.0} {:>8} {:>9} {:>+6.0}% {:>+5.0}% {:>+5.0}%",
+            l.name,
+            parent,
+            l.founded_at.as_years(),
+            l.probes_built,
+            l.colonies_founded,
+            pct(l.template.cruise_speed_c, root_spec.cruise_speed_c),
+            pct(l.template.fabrication, root_spec.fabrication),
+            pct(l.template.reliability, root_spec.reliability),
+        );
+    }
+    println!("(percentages are drift from the original Sol template)");
 }
 
 fn status(sim: &Simulation) {

@@ -9,6 +9,7 @@
 use crate::civs::{CivField, CivKey, Disposition};
 use crate::events::{Event, EventQueue};
 use crate::galaxy::{Galaxy, Star, StarId};
+use crate::lineage::{lineage_name, Lineage, LineageId, FORK_THRESHOLD};
 use crate::probe::{Probe, ProbeId, ProbeSpec, ProbeState};
 use crate::report::{Report, ReportKind};
 use crate::rng::SplitMix64;
@@ -97,6 +98,9 @@ pub struct Simulation {
     /// Doctrine broadcasts, in send order. Each entry governs a location
     /// only once its light-front has arrived there.
     doctrine_history: Vec<(SimTime, Doctrine)>,
+    /// Named descendant families, in creation order.
+    pub lineages: BTreeMap<LineageId, Lineage>,
+    next_lineage_id: u32,
     pub reports: Vec<Report>,
     pub stats: SimStats,
 }
@@ -123,17 +127,22 @@ impl Simulation {
             probes: BTreeMap::new(),
             colonies: BTreeMap::new(),
             claimed: BTreeSet::new(),
+            lineages: BTreeMap::new(),
+            next_lineage_id: 0,
             reports: Vec::new(),
             stats: SimStats::default(),
             cfg,
         };
+        let root_spec = ProbeSpec::baseline(sim.cfg.cruise_speed_c);
+        let root_line = sim.new_lineage(None, root_spec, 0.0);
         let seed_id = sim.alloc_probe_id();
         sim.probes.insert(
             seed_id,
             Probe {
                 id: seed_id,
                 generation: 0,
-                spec: ProbeSpec::baseline(sim.cfg.cruise_speed_c),
+                lineage: root_line,
+                spec: root_spec,
                 state: ProbeState::Settled { star: StarId::SOL },
                 rejected: Vec::new(),
             },
@@ -146,6 +155,31 @@ impl Simulation {
     fn alloc_probe_id(&mut self) -> ProbeId {
         let id = ProbeId(self.next_probe_id);
         self.next_probe_id += 1;
+        id
+    }
+
+    fn new_lineage(
+        &mut self,
+        parent: Option<LineageId>,
+        template: ProbeSpec,
+        founded_at_ly: f64,
+    ) -> LineageId {
+        let id = LineageId(self.next_lineage_id);
+        let name = lineage_name(self.next_lineage_id);
+        self.next_lineage_id += 1;
+        self.lineages.insert(
+            id,
+            Lineage {
+                id,
+                name,
+                parent,
+                founded_at: self.time,
+                founded_at_ly,
+                template,
+                probes_built: 0,
+                colonies_founded: 0,
+            },
+        );
         id
     }
 
@@ -450,9 +484,51 @@ impl Simulation {
         }
         let fabrication = self.probes.get(&founder).map(|p| p.spec.fabrication).unwrap_or(1.0);
         let interval = self.cfg.replication_years / (star.richness * fabrication);
+
+        // A founding probe that no longer matches the design its line was
+        // founded on establishes a line of its own here — drift becomes a
+        // named family exactly when it starts reproducing.
+        let founder_info = self.probes.get(&founder).map(|p| (p.lineage, p.spec, p.generation));
+        let mut line = founder_info.map(|(l, _, _)| l);
+        if let Some((parent_line, spec, generation)) = founder_info {
+            let diverged = self
+                .lineages
+                .get(&parent_line)
+                .map(|l| l.divergence(&spec) >= FORK_THRESHOLD)
+                .unwrap_or(false);
+            if diverged {
+                let dist = (star.x * star.x + star.y * star.y).sqrt();
+                let new_line = self.new_lineage(Some(parent_line), spec, dist);
+                if let Some(p) = self.probes.get_mut(&founder) {
+                    p.lineage = new_line;
+                }
+                line = Some(new_line);
+                let (name, trait_word, parent_name) = {
+                    let parent = &self.lineages[&parent_line];
+                    let child = &self.lineages[&new_line];
+                    (child.name.clone(), child.trait_of(parent), parent.name.clone())
+                };
+                self.emit(&star, ReportKind::LineageFork, format!(
+                    "A gen-{generation} probe of the {parent_name} line has founded its own \
+                     at {}: the {name} line, {trait_word} — {:.2}c, fab {:.2}, rel {:.2}.",
+                    self.galaxy.name(star.id),
+                    spec.cruise_speed_c,
+                    spec.fabrication,
+                    spec.reliability
+                ));
+            }
+        }
+        let line_name = line
+            .and_then(|l| self.lineages.get(&l))
+            .map(|l| l.name.clone())
+            .unwrap_or_default();
+        if let Some(l) = line.and_then(|l| self.lineages.get_mut(&l)) {
+            l.colonies_founded += 1;
+        }
         self.emit(&star, ReportKind::ColonyFounded, format!(
-            "Colony established at {} (richness {:.2}). Autofactory online; {} replicas budgeted.",
-            self.galaxy.name(star.id), star.richness, launches
+            "Colony established at {} (richness {:.2}) by the {} line. \
+             Autofactory online; {} replicas budgeted.",
+            self.galaxy.name(star.id), star.richness, line_name, launches
         ));
         self.queue
             .schedule(now.plus_years(interval), Event::ReplicaComplete { star: star_id });
@@ -471,20 +547,34 @@ impl Simulation {
         self.stats.probes_built += 1;
 
         // Child inherits the founder's spec with replication drift.
-        let (parent_spec, parent_gen) = self
+        let (parent_spec, parent_gen, parent_line) = self
             .probes
             .get(&founder)
-            .map(|p| (p.spec, p.generation))
-            .unwrap_or((ProbeSpec::baseline(self.cfg.cruise_speed_c), 0));
+            .map(|p| (p.spec, p.generation, p.lineage))
+            .unwrap_or((
+                ProbeSpec::baseline(self.cfg.cruise_speed_c),
+                0,
+                LineageId(0),
+            ));
         let mut mrng = self.rng.fork(crate::rng::hash_n(&[star_id.key(), self.stats.probes_built as u64]));
         let child_spec = parent_spec.mutate(&mut mrng, self.cfg.drift);
         let child_id = self.alloc_probe_id();
         self.stats.max_generation = self.stats.max_generation.max(parent_gen + 1);
+
+        // Children carry their founder's line; the split happens when one
+        // of them settles somewhere and starts a factory of its own (see
+        // found_colony), not per-unit off the assembly line.
+        let child_line = parent_line;
+        if let Some(l) = self.lineages.get_mut(&child_line) {
+            l.probes_built += 1;
+        }
+
         self.probes.insert(
             child_id,
             Probe {
                 id: child_id,
                 generation: parent_gen + 1,
+                lineage: child_line,
                 spec: child_spec,
                 state: ProbeState::Settled { star: star_id }, // placeholder until launch
                 rejected: Vec::new(),
@@ -775,6 +865,15 @@ impl Simulation {
         for (sent, d) in &self.doctrine_history {
             acc = hash_n(&[acc, sent.0, d.policy as u64, d.respect_warnings as u64]);
         }
+        for (id, l) in &self.lineages {
+            acc = hash_n(&[
+                acc,
+                id.0 as u64,
+                l.founded_at.0,
+                l.probes_built as u64,
+                l.colonies_founded as u64,
+            ]);
+        }
         acc
     }
 }
@@ -799,6 +898,8 @@ pub struct SaveGame {
     claimed: Vec<StarId>,
     relations: Vec<(CivKey, CivRelation)>,
     doctrine_history: Vec<(SimTime, Doctrine)>,
+    lineages: Vec<Lineage>,
+    next_lineage_id: u32,
     reports: Vec<Report>,
     stats: SimStats,
 }
@@ -816,6 +917,8 @@ impl Simulation {
             claimed: self.claimed.iter().copied().collect(),
             relations: self.relations.iter().map(|(k, v)| (*k, *v)).collect(),
             doctrine_history: self.doctrine_history.clone(),
+            lineages: self.lineages.values().cloned().collect(),
+            next_lineage_id: self.next_lineage_id,
             reports: self.reports.clone(),
             stats: self.stats,
         }
@@ -836,6 +939,8 @@ impl Simulation {
             claimed: save.claimed.into_iter().collect(),
             relations: save.relations.into_iter().collect(),
             doctrine_history: save.doctrine_history,
+            lineages: save.lineages.into_iter().map(|l| (l.id, l)).collect(),
+            next_lineage_id: save.next_lineage_id,
             reports: save.reports,
             stats: save.stats,
             cfg: save.cfg,

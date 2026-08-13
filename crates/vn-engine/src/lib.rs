@@ -21,6 +21,7 @@
 pub mod civs;
 pub mod events;
 pub mod galaxy;
+pub mod lineage;
 pub mod probe;
 pub mod report;
 pub mod rng;

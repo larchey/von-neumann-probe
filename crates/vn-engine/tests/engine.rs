@@ -124,6 +124,36 @@ fn first_contact_eventually_happens() {
 }
 
 #[test]
+fn lineages_fork_as_drift_accumulates() {
+    let mut sim = Simulation::new(SimConfig::default());
+    sim.run_until(SimTime::from_years(3000.0));
+
+    assert!(
+        sim.lineages.len() > 3,
+        "expected drift to spawn several lines, got {}",
+        sim.lineages.len()
+    );
+    let root = sim.lineages.values().next().unwrap();
+    assert_eq!(root.parent, None, "the first line descends from nobody");
+
+    for l in sim.lineages.values().skip(1) {
+        let parent = l.parent.expect("forked lines have a parent");
+        let parent_line = &sim.lineages[&parent];
+        // A fork must be a genuine departure from its parent's template.
+        assert!(
+            parent_line.divergence(&l.template) >= 0.07,
+            "line {} forked without meaningful drift",
+            l.name
+        );
+        assert!(l.founded_at >= parent_line.founded_at);
+    }
+    // Every probe belongs to a line that exists.
+    for p in sim.probes.values() {
+        assert!(sim.lineages.contains_key(&p.lineage));
+    }
+}
+
+#[test]
 fn doctrine_broadcasts_propagate_at_lightspeed() {
     let mut sim = Simulation::new(SimConfig::default());
     sim.run_until(SimTime::from_years(100.0));

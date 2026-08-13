@@ -27,6 +27,8 @@ pub enum ReportKind {
     ColonyLost,
     /// A new standing order broadcast from Sol.
     DoctrineChange,
+    /// A descendant line has drifted far enough to name itself.
+    LineageFork,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
