@@ -39,6 +39,22 @@ pub enum ReportKind {
     Secession,
 }
 
+impl ReportKind {
+    /// Is this worth interrupting the player for? Routine expansion
+    /// traffic is not; contact, loss, discovery, and defection are.
+    pub fn is_significant(self) -> bool {
+        matches!(
+            self,
+            ReportKind::FirstContact
+                | ReportKind::GardenWorld
+                | ReportKind::Secession
+                | ReportKind::ColonyLost
+                | ReportKind::CivWarning
+                | ReportKind::ProbeKilled
+        )
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Report {
     pub kind: ReportKind,

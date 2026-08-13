@@ -219,6 +219,31 @@ fn garden_worlds_get_found_by_expansion() {
     assert!(sim.stats.anomalies_salvaged > 0);
 }
 
+/// Rejected systems release their claim and get re-surveyed later, which
+/// once let the same world be "discovered" over and over.
+#[test]
+fn each_discovery_is_reported_exactly_once() {
+    let mut sim = Simulation::new(SimConfig::default());
+    sim.run_until(SimTime::from_years(3000.0));
+
+    let mut seen = std::collections::BTreeSet::new();
+    for r in sim
+        .reports
+        .iter()
+        .filter(|r| r.kind == vn_engine::report::ReportKind::GardenWorld)
+    {
+        let key = ((r.x * 100.0) as i64, (r.y * 100.0) as i64);
+        assert!(
+            seen.insert(key),
+            "garden world at {:.1},{:.1} was reported twice: {}",
+            r.x,
+            r.y,
+            r.text
+        );
+    }
+    assert!(!seen.is_empty());
+}
+
 #[test]
 fn lineages_fork_as_drift_accumulates() {
     let mut sim = Simulation::new(SimConfig::default());
@@ -276,10 +301,10 @@ fn investment_directs_evolution_and_pays_off_late() {
         best_speed(&base_sim)
     );
 
-    // Over deep time every investment outgrows undirected replication —
-    // that's what makes engineering worth its material premium.
+    // Speed and fabrication are *growth* investments: over deep time they
+    // outgrow undirected replication despite their material premium.
     let base = run(None, 8000.0);
-    for axis in [SpecAxis::Speed, SpecAxis::Fabrication, SpecAxis::Reliability] {
+    for axis in [SpecAxis::Speed, SpecAxis::Fabrication] {
         let s = run(Some(axis), 8000.0);
         assert!(
             s.population() > base.population(),
@@ -288,6 +313,20 @@ fn investment_directs_evolution_and_pays_off_late() {
             base.population()
         );
     }
+
+    // Reliability is insurance, not growth — it buys the lowest loss rate,
+    // which is what makes it the counterweight to speed rather than a
+    // competitor to fabrication.
+    let rel = run(Some(SpecAxis::Reliability), 8000.0);
+    let loss_rate = |s: &Simulation| {
+        (s.stats.probes_lost + s.stats.hazard_losses) as f64 / s.stats.probes_built.max(1) as f64
+    };
+    assert!(
+        loss_rate(&rel) < loss_rate(&base),
+        "engineering reliability should cut the loss rate: {:.4} vs {:.4}",
+        loss_rate(&rel),
+        loss_rate(&base)
+    );
 
     // Speed buys reach and pays for it in wrecks; fabrication buys density.
     let speed = run(Some(SpecAxis::Speed), 8000.0);

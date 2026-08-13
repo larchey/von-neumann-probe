@@ -281,6 +281,49 @@ fn interactive(sim: &mut Simulation) {
                 }
                 last_recv = sim.time;
             }
+            // Advance until something worth hearing about arrives. This is
+            // how you actually play across century-scale time: you don't
+            // watch, you wait for the mail.
+            ["next"] | ["next", _] => {
+                let limit: f64 = parts
+                    .get(1)
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(3000.0);
+                let deadline = sim.time.plus_years(limit);
+                let mut reported = false;
+                while sim.time < deadline && !sim.is_finished() {
+                    let before = sim.time;
+                    sim.run_until(sim.time.plus_years(25.0));
+                    let fresh = sim.significant_reports_between(before, sim.time);
+                    if !fresh.is_empty() {
+                        for r in fresh.iter().take(10) {
+                            println!(
+                                "[recv Y{:>7.1} | {:>5.1} ly] {}",
+                                r.received_at.as_years(),
+                                r.distance_ly,
+                                r.text
+                            );
+                        }
+                        if fresh.len() > 10 {
+                            println!("(+{} more this decade)", fresh.len() - 10);
+                        }
+                        reported = true;
+                        break;
+                    }
+                }
+                last_recv = sim.time;
+                if !reported {
+                    println!(
+                        "Y{:.0}: {} years pass. Nothing of note reaches Sol.",
+                        sim.time.as_years(),
+                        limit
+                    );
+                }
+                if sim.is_finished() {
+                    println!("The expansion has ended: no probes remain in flight or in production.");
+                }
+                status(sim);
+            }
             ["status"] => status(sim),
             ["map"] => render_known_map(sim),
             ["map", "all"] => render_map(sim),
@@ -368,7 +411,8 @@ fn interactive(sim: &mut Simulation) {
             },
             ["quit"] | ["exit"] => break,
             ["help"] => {
-                println!("run <years>      advance the simulation");
+                println!("next [max]       advance until news worth hearing reaches Sol");
+                println!("run <years>      advance the simulation by a fixed span");
                 println!("status           one-line empire summary");
                 println!("map              chart of what signals have reached Sol (your actual knowledge)");
                 println!("map all          omniscient ground-truth chart (debug)");

@@ -115,6 +115,11 @@ pub struct Simulation {
     /// Stars already targeted or settled — prevents two colonies racing
     /// for the same system. Released if the inbound probe is lost.
     claimed: BTreeSet<StarId>,
+    /// Systems whose one-time find has already been claimed. A rejected
+    /// system releases its claim and gets re-surveyed later, which would
+    /// otherwise let the same garden world be "discovered" repeatedly and
+    /// the same derelict be stripped twice.
+    salvaged: BTreeSet<StarId>,
     pub civ_field: CivField,
     /// Civilizations we've physically encountered.
     pub relations: BTreeMap<CivKey, CivRelation>,
@@ -154,6 +159,7 @@ impl Simulation {
             probes: BTreeMap::new(),
             colonies: BTreeMap::new(),
             claimed: BTreeSet::new(),
+            salvaged: BTreeSet::new(),
             lineages: BTreeMap::new(),
             next_lineage_id: 0,
             reports: Vec::new(),
@@ -376,6 +382,11 @@ impl Simulation {
         let Some(anomaly) = self.galaxy.anomaly(star.id) else {
             return false;
         };
+        // Hazards are a standing property of the system and endanger every
+        // visitor; discoveries and salvage happen exactly once.
+        if anomaly != Anomaly::Hazard && !self.salvaged.insert(star.id) {
+            return false;
+        }
         let name = self.galaxy.name(star.id);
         match anomaly {
             Anomaly::GardenWorld => {
@@ -1010,6 +1021,27 @@ impl Simulation {
         }
     }
 
+    /// Significant signals received in (after, until], in receive order.
+    /// Filters before sorting so stepping through deep time stays cheap
+    /// even with a six-figure report log.
+    pub fn significant_reports_between(&self, after: SimTime, until: SimTime) -> Vec<&Report> {
+        let mut out: Vec<&Report> = self
+            .reports
+            .iter()
+            .filter(|r| {
+                r.received_at > after && r.received_at <= until && r.kind.is_significant()
+            })
+            .collect();
+        out.sort_by_key(|r| (r.received_at, r.occurred_at));
+        out
+    }
+
+    /// True once nothing further can happen — every probe is dead or
+    /// dormant and no events remain. The expansion is over.
+    pub fn is_finished(&self) -> bool {
+        self.queue.is_empty()
+    }
+
     /// Reports that have physically reached Sol by `now`, in receive order.
     pub fn reports_received_by(&self, now: SimTime) -> Vec<&Report> {
         let mut out: Vec<&Report> =
@@ -1119,6 +1151,9 @@ impl Simulation {
         for id in &self.claimed {
             acc = hash_n(&[acc, id.key()]);
         }
+        for id in &self.salvaged {
+            acc = hash_n(&[acc, id.key(), 0x5A17]);
+        }
         for (key, rel) in &self.relations {
             acc = hash_n(&[
                 acc,
@@ -1164,6 +1199,7 @@ pub struct SaveGame {
     probes: Vec<Probe>,
     colonies: Vec<Colony>,
     claimed: Vec<StarId>,
+    salvaged: Vec<StarId>,
     relations: Vec<(CivKey, CivRelation)>,
     doctrine_history: Vec<(SimTime, Doctrine)>,
     lineages: Vec<Lineage>,
@@ -1183,6 +1219,7 @@ impl Simulation {
             probes: self.probes.values().cloned().collect(),
             colonies: self.colonies.values().cloned().collect(),
             claimed: self.claimed.iter().copied().collect(),
+            salvaged: self.salvaged.iter().copied().collect(),
             relations: self.relations.iter().map(|(k, v)| (*k, *v)).collect(),
             doctrine_history: self.doctrine_history.clone(),
             lineages: self.lineages.values().cloned().collect(),
@@ -1205,6 +1242,7 @@ impl Simulation {
             probes: save.probes.into_iter().map(|p| (p.id, p)).collect(),
             colonies: save.colonies.into_iter().map(|c| (c.star, c)).collect(),
             claimed: save.claimed.into_iter().collect(),
+            salvaged: save.salvaged.into_iter().collect(),
             relations: save.relations.into_iter().collect(),
             doctrine_history: save.doctrine_history,
             lineages: save.lineages.into_iter().map(|l| (l.id, l)).collect(),
