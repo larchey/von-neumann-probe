@@ -1,0 +1,12 @@
+[package]
+name = "vn-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "vnp"
+path = "src/main.rs"
+
+[dependencies]
+vn-engine = { path = "../vn-engine" }
