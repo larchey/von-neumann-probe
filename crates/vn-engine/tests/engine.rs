@@ -141,6 +141,38 @@ fn losing_control_costs_you_the_discoveries() {
     assert!(survey.stats.garden_worlds_unreported > survey.stats.garden_worlds);
 }
 
+/// Guards against tuning that only works on the seed it was tuned on.
+/// Every one of these behaviors is emergent, so a balance change can
+/// quietly kill one on most galaxies while seed 42 still looks fine.
+#[test]
+fn core_behaviors_hold_across_seeds() {
+    for seed in [1u64, 2, 3, 7, 42, 99, 1234, 31337] {
+        let mut sim = Simulation::new(SimConfig { seed, ..SimConfig::default() });
+        sim.run_until(SimTime::from_years(4000.0));
+
+        let ctx = format!("seed {seed}");
+        // The wave expands and keeps expanding.
+        assert!(sim.colonies.len() > 500, "{ctx}: only {} colonies", sim.colonies.len());
+        assert!(
+            sim.frontier_radius_ly() > 250.0,
+            "{ctx}: frontier only {:.0} ly",
+            sim.frontier_radius_ly()
+        );
+        // The mission finds something.
+        assert!(sim.stats.garden_worlds > 5, "{ctx}: {} garden worlds", sim.stats.garden_worlds);
+        // The galaxy is inhabited and gets met.
+        assert!(!sim.relations.is_empty(), "{ctx}: met nobody");
+        // Drift produces a family tree, and control starts slipping.
+        assert!(sim.lineages.len() > 20, "{ctx}: only {} lineages", sim.lineages.len());
+        let obedient = sim.obedient_fraction();
+        assert!(
+            (0.3..1.0).contains(&obedient),
+            "{ctx}: obedience {obedient:.2} — expansion should cost some control, \
+             but not collapse outright"
+        );
+    }
+}
+
 #[test]
 fn dead_civilizations_record_how_they_died() {
     let f = CivField::new(42, 16.0);
