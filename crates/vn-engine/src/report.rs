@@ -37,6 +37,8 @@ pub enum ReportKind {
     HazardLoss,
     /// A descendant line has stopped taking orders from Sol.
     Secession,
+    /// A dead civilization's archives, recording how they ended.
+    Archive,
 }
 
 impl ReportKind {
@@ -51,6 +53,7 @@ impl ReportKind {
                 | ReportKind::ColonyLost
                 | ReportKind::CivWarning
                 | ReportKind::ProbeKilled
+                | ReportKind::Archive
         )
     }
 }

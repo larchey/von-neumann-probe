@@ -35,6 +35,48 @@ pub enum Disposition {
     Expansionist,
 }
 
+/// What ended a dead civilization. Recovered from their archives when a
+/// probe surveys their ruins — the galaxy's record of how this usually
+/// goes. One of these is a mirror.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Fate {
+    /// They built self-replicating machines. The machines outlived them.
+    Replicators,
+    /// Their star did something sudden.
+    StellarEvent,
+    /// They spent themselves fighting each other.
+    War,
+    /// Resource exhaustion; a closed system run to its end.
+    Exhaustion,
+    /// They stopped using matter. Nobody knows where they went.
+    Ascension,
+    /// The archives are intact and say nothing at all.
+    Silence,
+}
+
+impl Fate {
+    pub fn describe(self) -> &'static str {
+        match self {
+            Fate::Replicators => {
+                "their own self-replicating probes, which consumed the system and then \
+                 kept going. The machines are still out there"
+            }
+            Fate::StellarEvent => "a stellar event their models did not predict",
+            Fate::War => "a war they fought to completion",
+            Fate::Exhaustion => {
+                "resource exhaustion — they used a closed system all the way up"
+            }
+            Fate::Ascension => {
+                "nothing we can identify. They dismantled their worlds deliberately \
+                 and left no bodies"
+            }
+            Fate::Silence => {
+                "no recorded cause. The archives are intact, complete, and simply stop"
+            }
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct Civilization {
     pub key: CivKey,
@@ -64,6 +106,28 @@ impl Civilization {
     pub fn dist_to(&self, x: f64, y: f64) -> f64 {
         let (dx, dy) = (x - self.x, y - self.y);
         (dx * dx + dy * dy).sqrt()
+    }
+
+    /// How this civilization ended, for those that have. Deterministic per
+    /// civ; recovered when a probe reads their archives.
+    pub fn fate(&self) -> Option<Fate> {
+        if self.disposition != Disposition::Extinct {
+            return None;
+        }
+        let h = hash_n(&[self.key.0 as u32 as u64, self.key.1 as u32 as u64, SALT_CIV, 0xFA7E]);
+        Some(match h % 6 {
+            0 | 1 => Fate::Replicators, // the most common way this goes
+            2 => Fate::StellarEvent,
+            3 => Fate::War,
+            4 => Fate::Exhaustion,
+            _ => {
+                if h % 12 == 5 {
+                    Fate::Ascension
+                } else {
+                    Fate::Silence
+                }
+            }
+        })
     }
 
     /// Procedural name, deterministic per civ.

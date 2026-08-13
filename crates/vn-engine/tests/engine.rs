@@ -142,6 +142,33 @@ fn losing_control_costs_you_the_discoveries() {
 }
 
 #[test]
+fn dead_civilizations_record_how_they_died() {
+    let f = CivField::new(42, 16.0);
+    let mut fates = std::collections::BTreeMap::new();
+    for rx in -25..25 {
+        for ry in -25..25 {
+            if let Some(civ) = f.civ_in_region(rx, ry) {
+                match civ.disposition {
+                    vn_engine::civs::Disposition::Extinct => {
+                        let fate = civ.fate().expect("extinct civs have a fate");
+                        assert_eq!(Some(fate), civ.fate(), "fate must be stable");
+                        *fates.entry(format!("{fate:?}")).or_insert(0) += 1;
+                    }
+                    // Only the dead have a recorded ending.
+                    _ => assert_eq!(civ.fate(), None),
+                }
+            }
+        }
+    }
+    assert!(fates.len() >= 4, "fates should vary: {fates:?}");
+    // The galaxy's most common epitaph is the thing the player is doing.
+    assert!(
+        fates["Replicators"] >= *fates.values().max().unwrap(),
+        "runaway replicators should be the most common fate: {fates:?}"
+    );
+}
+
+#[test]
 fn civs_are_deterministic_and_respect_sol_exclusion() {
     let f = CivField::new(42, 16.0);
     let mut found = 0;

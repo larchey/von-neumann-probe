@@ -329,6 +329,23 @@ fn interactive(sim: &mut Simulation) {
             ["map", "all"] => render_map(sim),
             ["lines"] => show_lineages(sim, 15),
             ["score"] => scorecard(sim),
+            ["history"] => {
+                if sim.fates_learned.is_empty() {
+                    println!("No dead civilizations' archives recovered yet.");
+                }
+                for key in &sim.fates_learned {
+                    if let Some(civ) = sim.civ_field.civ_by_key(*key) {
+                        if let Some(fate) = civ.fate() {
+                            println!(
+                                "{:<34} {:>5.0} ly — ended by {}.",
+                                civ.name(),
+                                (civ.x * civ.x + civ.y * civ.y).sqrt(),
+                                fate.describe()
+                            );
+                        }
+                    }
+                }
+            }
             ["civs"] => {
                 if sim.relations.is_empty() {
                     println!("no contact with other civilizations yet.");
@@ -417,6 +434,7 @@ fn interactive(sim: &mut Simulation) {
                 println!("map              chart of what signals have reached Sol (your actual knowledge)");
                 println!("map all          omniscient ground-truth chart (debug)");
                 println!("civs             known civilizations");
+                println!("history          how the dead ones died, from their archives");
                 println!("lines            your descendant lineages and how they've drifted");
                 println!("log <n>          last n received signals");
                 println!("policy <p>       broadcast doctrine: nearest|richest|outward|survey (travels at c!)");

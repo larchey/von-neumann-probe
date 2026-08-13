@@ -120,6 +120,8 @@ pub struct Simulation {
     /// otherwise let the same garden world be "discovered" repeatedly and
     /// the same derelict be stripped twice.
     salvaged: BTreeSet<StarId>,
+    /// Dead civilizations whose archives we've read.
+    pub fates_learned: BTreeSet<CivKey>,
     pub civ_field: CivField,
     /// Civilizations we've physically encountered.
     pub relations: BTreeMap<CivKey, CivRelation>,
@@ -160,6 +162,7 @@ impl Simulation {
             colonies: BTreeMap::new(),
             claimed: BTreeSet::new(),
             salvaged: BTreeSet::new(),
+            fates_learned: BTreeSet::new(),
             lineages: BTreeMap::new(),
             next_lineage_id: 0,
             reports: Vec::new(),
@@ -540,6 +543,18 @@ impl Simulation {
                          folded into the lineage template.",
                         civ.name(), self.galaxy.name(star.id), desc, (gain - 1.0) * 100.0
                     ));
+                }
+                // Their archives outlasted them. Read once per civ — the
+                // galaxy's record of how this usually ends.
+                if let Some(fate) = civ.fate() {
+                    if self.fates_learned.insert(civ.key) {
+                        self.emit_civ(star, ReportKind::Archive, Some(civ.key), format!(
+                            "Archives recovered at {}. {} were ended by {}.",
+                            self.galaxy.name(star.id),
+                            civ.name(),
+                            fate.describe()
+                        ));
+                    }
                 }
                 false // proceed with normal colonize/reject flow
             }
@@ -1154,6 +1169,9 @@ impl Simulation {
         for id in &self.salvaged {
             acc = hash_n(&[acc, id.key(), 0x5A17]);
         }
+        for k in &self.fates_learned {
+            acc = hash_n(&[acc, k.0 as u32 as u64, k.1 as u32 as u64, 0xFA7E]);
+        }
         for (key, rel) in &self.relations {
             acc = hash_n(&[
                 acc,
@@ -1200,6 +1218,7 @@ pub struct SaveGame {
     colonies: Vec<Colony>,
     claimed: Vec<StarId>,
     salvaged: Vec<StarId>,
+    fates_learned: Vec<CivKey>,
     relations: Vec<(CivKey, CivRelation)>,
     doctrine_history: Vec<(SimTime, Doctrine)>,
     lineages: Vec<Lineage>,
@@ -1220,6 +1239,7 @@ impl Simulation {
             colonies: self.colonies.values().cloned().collect(),
             claimed: self.claimed.iter().copied().collect(),
             salvaged: self.salvaged.iter().copied().collect(),
+            fates_learned: self.fates_learned.iter().copied().collect(),
             relations: self.relations.iter().map(|(k, v)| (*k, *v)).collect(),
             doctrine_history: self.doctrine_history.clone(),
             lineages: self.lineages.values().cloned().collect(),
@@ -1243,6 +1263,7 @@ impl Simulation {
             colonies: save.colonies.into_iter().map(|c| (c.star, c)).collect(),
             claimed: save.claimed.into_iter().collect(),
             salvaged: save.salvaged.into_iter().collect(),
+            fates_learned: save.fates_learned.into_iter().collect(),
             relations: save.relations.into_iter().collect(),
             doctrine_history: save.doctrine_history,
             lineages: save.lineages.into_iter().map(|l| (l.id, l)).collect(),
