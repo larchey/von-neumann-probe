@@ -192,6 +192,31 @@ fn lineages_fork_as_drift_accumulates() {
 }
 
 #[test]
+fn distant_drifted_lines_secede() {
+    let mut sim = Simulation::new(SimConfig::default());
+    sim.run_until(SimTime::from_years(8000.0));
+
+    let independent: Vec<_> = sim.lineages.values().filter(|l| l.independent).collect();
+    assert!(
+        !independent.is_empty(),
+        "deep time should produce lines that stop taking orders"
+    );
+    for l in &independent {
+        // Secession requires distance — Sol's reach is what's missing.
+        assert!(
+            l.founded_at_ly >= vn_engine::lineage::INDEPENDENCE_RANGE_LY
+                || l.parent.map(|p| sim.lineages[&p].independent).unwrap_or(false),
+            "line {} seceded inside Sol's reach at {:.0} ly",
+            l.name,
+            l.founded_at_ly
+        );
+    }
+    // Control is lost gradually, not instantly.
+    let obedient = sim.obedient_fraction();
+    assert!(obedient > 0.0 && obedient < 1.0, "obedient fraction was {obedient}");
+}
+
+#[test]
 fn doctrine_broadcasts_propagate_at_lightspeed() {
     let mut sim = Simulation::new(SimConfig::default());
     sim.run_until(SimTime::from_years(100.0));

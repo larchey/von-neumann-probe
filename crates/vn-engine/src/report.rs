@@ -35,6 +35,8 @@ pub enum ReportKind {
     AnomalyFound,
     /// A probe destroyed by a natural hazard.
     HazardLoss,
+    /// A descendant line has stopped taking orders from Sol.
+    Secession,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

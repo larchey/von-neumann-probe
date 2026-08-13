@@ -26,6 +26,14 @@ pub struct LineageId(pub u32);
 /// surname-like spread where the top dozen are worth following.
 pub const FORK_THRESHOLD: f64 = 0.12;
 
+/// Total drift from the *original Sol template* past which a line no
+/// longer considers itself the same project...
+pub const INDEPENDENCE_DRIFT: f64 = 0.30;
+/// ...but only out past this range, where Sol's orders arrive centuries
+/// stale and there is nothing to enforce them. Distance is what turns
+/// divergence into secession.
+pub const INDEPENDENCE_RANGE_LY: f64 = 200.0;
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Lineage {
     pub id: LineageId,
@@ -39,6 +47,9 @@ pub struct Lineage {
     pub template: ProbeSpec,
     pub probes_built: u32,
     pub colonies_founded: u32,
+    /// This line no longer executes doctrine broadcast from Sol. It still
+    /// expands — just not for you.
+    pub independent: bool,
 }
 
 impl Lineage {
@@ -49,6 +60,13 @@ impl Lineage {
         rel(spec.cruise_speed_c, self.template.cruise_speed_c)
             .max(rel(spec.fabrication, self.template.fabrication))
             .max(rel(spec.reliability, self.template.reliability))
+    }
+
+    /// The doctrine an independent line follows instead of Sol's: fixed
+    /// at secession, derived from its own identity. Returned as an index
+    /// into TargetPolicy by the caller (kept dependency-free here).
+    pub fn own_policy_index(&self) -> u64 {
+        crate::rng::hash_n(&[self.id.0 as u64, 0x5ECE]) % 3
     }
 
     /// Which axis this line is defined by relative to its parent — the

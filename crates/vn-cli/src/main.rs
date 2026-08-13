@@ -372,9 +372,14 @@ fn show_lineages(sim: &Simulation, n: usize) {
             .map(|p| p.name.as_str())
             .unwrap_or("—");
         let pct = |v: f64, base: f64| (v / base - 1.0) * 100.0;
+        let name = if l.independent {
+            format!("{}*", l.name)
+        } else {
+            l.name.clone()
+        };
         println!(
             "{:<12} {:<12} {:>6.0} {:>8} {:>9} {:>+6.0}% {:>+5.0}% {:>+5.0}%",
-            l.name,
+            name,
             parent,
             l.founded_at.as_years(),
             l.probes_built,
@@ -384,7 +389,9 @@ fn show_lineages(sim: &Simulation, n: usize) {
             pct(l.template.reliability, root_spec.reliability),
         );
     }
-    println!("(percentages are drift from the original Sol template)");
+    println!(
+        "(percentages are drift from the original Sol template; * = independent, no longer takes orders)"
+    );
 }
 
 fn status(sim: &Simulation) {
@@ -401,10 +408,12 @@ fn status(sim: &Simulation) {
         sim.relations.len()
     );
     println!(
-        "          garden worlds found: {} | anomalies salvaged: {} | {} lineages",
+        "          garden worlds found: {} | anomalies salvaged: {} | {} lineages ({} independent, {:.0}% of colonies still answer to Sol)",
         sim.stats.garden_worlds,
         sim.stats.anomalies_salvaged,
-        sim.lineages.len()
+        sim.lineages.len(),
+        sim.stats.independent_lines,
+        sim.obedient_fraction() * 100.0
     );
 }
 

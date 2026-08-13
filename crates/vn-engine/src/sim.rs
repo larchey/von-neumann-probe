@@ -9,7 +9,9 @@
 use crate::civs::{CivField, CivKey, Disposition};
 use crate::events::{Event, EventQueue};
 use crate::galaxy::{Anomaly, Galaxy, Star, StarId};
-use crate::lineage::{lineage_name, Lineage, LineageId, FORK_THRESHOLD};
+use crate::lineage::{
+    lineage_name, Lineage, LineageId, FORK_THRESHOLD, INDEPENDENCE_DRIFT, INDEPENDENCE_RANGE_LY,
+};
 use crate::probe::{Probe, ProbeId, ProbeSpec, ProbeState};
 use crate::report::{Report, ReportKind};
 use crate::rng::SplitMix64;
@@ -58,6 +60,8 @@ pub struct SimStats {
     pub anomalies_salvaged: u32,
     /// Probes lost to natural hazards at survey.
     pub hazard_losses: u32,
+    /// Lines that have declared independence from Sol.
+    pub independent_lines: u32,
 }
 
 /// Our accumulated relationship with a civilization we've met.
@@ -184,9 +188,27 @@ impl Simulation {
                 template,
                 probes_built: 0,
                 colonies_founded: 0,
+                independent: false,
             },
         );
         id
+    }
+
+    /// The doctrine actually governing a probe: Sol's orders if the line
+    /// still answers to Sol, its own if it has seceded.
+    fn governing_doctrine(&self, line: LineageId, x: f64, y: f64) -> Doctrine {
+        match self.lineages.get(&line) {
+            Some(l) if l.independent => Doctrine {
+                policy: match l.own_policy_index() {
+                    0 => TargetPolicy::Nearest,
+                    1 => TargetPolicy::Richest,
+                    _ => TargetPolicy::Outward,
+                },
+                // Nobody's warnings bind a line that answers to nobody.
+                respect_warnings: false,
+            },
+            _ => self.doctrine_at(x, y),
+        }
     }
 
     /// Advance until `until`, handling every event scheduled before it.
@@ -270,7 +292,10 @@ impl Simulation {
         if self.survey_anomaly(probe_id, &star) {
             return; // hazard destroyed the probe
         }
-        let local_policy = self.doctrine_at(star.x, star.y).policy;
+        let local_policy = match self.probes.get(&probe_id).map(|p| p.lineage) {
+            Some(l) => self.governing_doctrine(l, star.x, star.y).policy,
+            None => self.doctrine_at(star.x, star.y).policy,
+        };
         if star.richness >= self.effective_min_richness(local_policy) {
             // Worth settling: build the autofactory. Richer systems
             // bootstrap faster.
@@ -604,19 +629,43 @@ impl Simulation {
                     p.lineage = new_line;
                 }
                 line = Some(new_line);
+
+                // Far from the original design and far beyond any oversight:
+                // the line stops being yours. It keeps expanding regardless.
+                let root_drift = self.lineages[&LineageId(0)].divergence(&spec);
+                let secedes = root_drift >= INDEPENDENCE_DRIFT
+                    && dist >= INDEPENDENCE_RANGE_LY
+                    && !self.lineages[&parent_line].independent;
+                let inherits_independence = self.lineages[&parent_line].independent;
+                if secedes || inherits_independence {
+                    if let Some(l) = self.lineages.get_mut(&new_line) {
+                        l.independent = true;
+                    }
+                }
+
                 let (name, trait_word, parent_name) = {
                     let parent = &self.lineages[&parent_line];
                     let child = &self.lineages[&new_line];
                     (child.name.clone(), child.trait_of(parent), parent.name.clone())
                 };
-                self.emit(&star, ReportKind::LineageFork, format!(
-                    "A gen-{generation} probe of the {parent_name} line has founded its own \
-                     at {}: the {name} line, {trait_word} — {:.2}c, fab {:.2}, rel {:.2}.",
-                    self.galaxy.name(star.id),
-                    spec.cruise_speed_c,
-                    spec.fabrication,
-                    spec.reliability
-                ));
+                if secedes {
+                    self.stats.independent_lines += 1;
+                    self.emit(&star, ReportKind::Secession, format!(
+                        "The {name} line has stopped acknowledging directives from Sol. \
+                         Founded at {} ({:.0} ly out), {:.0}% divergent from the original \
+                         template, it continues to replicate on its own terms.",
+                        self.galaxy.name(star.id), dist, root_drift * 100.0
+                    ));
+                } else {
+                    self.emit(&star, ReportKind::LineageFork, format!(
+                        "A gen-{generation} probe of the {parent_name} line has founded its own \
+                         at {}: the {name} line, {trait_word} — {:.2}c, fab {:.2}, rel {:.2}.",
+                        self.galaxy.name(star.id),
+                        spec.cruise_speed_c,
+                        spec.fabrication,
+                        spec.reliability
+                    ));
+                }
             }
         }
         let line_name = line
@@ -722,8 +771,13 @@ impl Simulation {
         let from = self.galaxy.star(from_id);
         let years = self.time.as_years();
         // The launching colony obeys the doctrine whose light-front has
-        // reached *it* — a fresh broadcast doesn't govern the frontier yet.
-        let doctrine = self.doctrine_at(from.x, from.y);
+        // reached *it* — a fresh broadcast doesn't govern the frontier yet
+        // — unless its line has seceded, in which case it obeys itself.
+        let line = self.probes.get(&probe_id).map(|p| p.lineage);
+        let doctrine = match line {
+            Some(l) => self.governing_doctrine(l, from.x, from.y),
+            None => self.doctrine_at(from.x, from.y),
+        };
         // Route around space we've *learned* is hostile. Unknown civs can't
         // be avoided — first contact is paid for in probes.
         let hostile: Vec<_> = self
@@ -906,6 +960,23 @@ impl Simulation {
         self.stats.max_generation
     }
 
+    /// Fraction of colonies founded by lines that still take orders from
+    /// Sol. Falls as the frontier outgrows its own obedience.
+    pub fn obedient_fraction(&self) -> f64 {
+        let (mut loyal, mut total) = (0u64, 0u64);
+        for l in self.lineages.values() {
+            total += l.colonies_founded as u64;
+            if !l.independent {
+                loyal += l.colonies_founded as u64;
+            }
+        }
+        if total == 0 {
+            1.0
+        } else {
+            loyal as f64 / total as f64
+        }
+    }
+
     /// Total living probes: active (hot map) + dormant (archived counts).
     pub fn population(&self) -> u64 {
         self.probes.len() as u64
@@ -973,6 +1044,7 @@ impl Simulation {
                 l.founded_at.0,
                 l.probes_built as u64,
                 l.colonies_founded as u64,
+                l.independent as u64,
             ]);
         }
         acc
