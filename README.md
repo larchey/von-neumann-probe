@@ -14,20 +14,29 @@ a headless CLI runner (`vn-cli`). No graphics yet — gameplay first.
 cargo test                 # engine test suite
 cargo run --release --bin vnp -- --years 500
 cargo run --release --bin vnp -- --seed 7 --years 5000 --step 500 --map
-cargo run --release --bin vnp -- --policy richest --bold --save empire.json
+cargo run --release --bin vnp -- --policy survey --invest speed --save empire.json
 cargo run --release --bin vnp -- --load empire.json --years 1000
+cargo run --release --bin vnp -- --interactive     # mission control REPL
 ```
 
 Sample output:
 
 ```
-  year   probes   transit   colonies   frontier  max gen      lost
-   250       64        23         12     20.6ly        3         0
-   500      239        46         37     44.3ly        4         0
+─── mission control log (light-lagged; 21548 of 26224 signals received) ───
+[recv Y2924.9 |  234.1 ly] GARDEN WORLD at HIP-06323. Oxygen, liquid water, a
+                           biosphere. Found by the Bob line, 234 ly from Sol.
+                           This is what we were built for.
+[recv Y3931.0 |  331.2 ly] A gen-15 probe of the Bob line has founded its own at
+                           HIP-35876: the Curie line, prolific — 0.11c, fab 1.13.
+[recv Y4463.1 |  440.0 ly] The Qoldraren Watchers have issued a formal warning:
+                           cease expansion into their space.
 
-─── mission control log (light-lagged; 150 of 167 signals received) ───
-[recv Y 481.6 | sent Y 443.6 |  38.0 ly] Colony established at HIP-44353 (richness 0.90).
-[recv Y 486.9 | sent Y 462.9 |  24.0 ly] HIP-82099 surveyed: richness 0.25, below viability.
+╔══ mission scorecard — Y4000 ══
+║ GARDEN WORLDS FOUND              61   (1.52 per century, 1 per 82 surveyed)
+║ colonies / population          2908 / 19966
+║ frontier reached                489 ly
+║ still answering to Sol           84%   (148 lines, 34 independent)
+╚══
 ```
 
 ## The constraints are the game
@@ -107,7 +116,8 @@ simulation driven by a time-ordered queue. Cost scales with *events*
 (arrivals, replications, surveys), never with entities × frames.
 
 - **Event-driven core** — `BinaryHeap` keyed by (time, seq); handling an
-  event schedules future events. 20,000 simulated years ≈ 3M events ≈ 47 s.
+  event schedules future events. 20,000 simulated years ≈ 854k population
+  across 124k colonies in 13.9 s / 244 MB.
 - **Lazy procedural galaxy** — stars are pure functions of (seed, cell);
   only touched systems hold mutable state. Unbounded space, zero idle cost.
 - **Fully deterministic** — hand-rolled splitmix64 streams, no external RNG
@@ -127,7 +137,7 @@ See [DESIGN.md](DESIGN.md) for gameplay direction and
 - [x] Replication drift, attrition, saturation, light-lagged reports
 - [x] CLI runner + test suite
 - [x] Advanced civilizations (4 dispositions, first contact, retaliation)
-- [x] Expansion doctrines (`nearest` / `richest` / `outward`, `--bold`)
+- [x] Expansion doctrines (`nearest`/`richest`/`outward`/`survey`, `--bold`)
 - [x] Save/load with bit-identical resume (digest-verified)
 - [x] ASCII galaxy chart (`--map`)
 - [x] Interactive mission-control REPL (`--interactive`): doctrine
@@ -139,8 +149,9 @@ See [DESIGN.md](DESIGN.md) for gameplay direction and
   lines secede and stop taking orders
 - [x] Survey anomalies: garden worlds, derelicts, precursor caches, hazards
 - [x] Deep-time cold-state compression (20k years in 13.9s / 244 MB)
-- [ ] Spec investment: steer evolution instead of only watching it
 - [x] Garden-world doctrine (`survey`) + end-of-run mission scorecard
+- [x] Directed spec investment (`--invest speed|fab|rel`): steer evolution
+  instead of only watching it
 - [ ] Statistical aggregation for 10⁸+ probes
 - [ ] TUI frontend: live map, scrolling log, doctrine panel
 
