@@ -16,7 +16,10 @@ use crate::probe::{Probe, ProbeId, ProbeSpec, ProbeState};
 use crate::report::{Report, ReportKind};
 use crate::rng::SplitMix64;
 use crate::time::SimTime;
-use crate::{SimConfig, TargetPolicy};
+use crate::{
+    SimConfig, SpecAxis, TargetPolicy, INVESTMENT_TIME_COST, MATERIAL_PER_ENGINEERED_PROBE,
+    MATERIAL_PER_PROBE,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -27,9 +30,10 @@ pub struct Colony {
     pub star: StarId,
     pub founded_at: SimTime,
     pub founder: ProbeId,
-    /// Replicas this colony may still launch before local accessible
-    /// material is exhausted (richness-scaled).
-    pub launches_remaining: u32,
+    /// Accessible material left, in abstract units (richness- and
+    /// fabrication-scaled). A probe costs MATERIAL_PER_PROBE, an
+    /// engineered one more — see the constants in lib.rs.
+    pub material_remaining: u32,
     pub probes_built: u32,
     /// Probes powered down here forever (saturated founders, dead-end
     /// arrivals). Archived as a count — they are record, not simulation,
@@ -62,6 +66,8 @@ pub struct SimStats {
     pub hazard_losses: u32,
     /// Lines that have declared independence from Sol.
     pub independent_lines: u32,
+    /// Replicas built under a directed-investment doctrine.
+    pub directed_replicas: u32,
 }
 
 /// Our accumulated relationship with a civilization we've met.
@@ -86,6 +92,9 @@ pub const WATCHER_STRIKE_AT: u32 = 5;
 pub struct Doctrine {
     pub policy: TargetPolicy,
     pub respect_warnings: bool,
+    /// Axis colonies spend extra build time engineering into their
+    /// children, or None to replicate as fast as possible.
+    pub invest: Option<SpecAxis>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -128,7 +137,11 @@ impl Simulation {
             relations: BTreeMap::new(),
             doctrine_history: vec![(
                 SimTime::ZERO,
-                Doctrine { policy: cfg.policy, respect_warnings: cfg.respect_warnings },
+                Doctrine {
+                    policy: cfg.policy,
+                    respect_warnings: cfg.respect_warnings,
+                    invest: cfg.invest,
+                },
             )],
             time: SimTime::ZERO,
             queue: EventQueue::default(),
@@ -206,6 +219,8 @@ impl Simulation {
                 },
                 // Nobody's warnings bind a line that answers to nobody.
                 respect_warnings: false,
+                // Seceded lines optimize for spread, not for your program.
+                invest: None,
             },
             _ => self.doctrine_at(x, y),
         }
@@ -256,9 +271,13 @@ impl Simulation {
         self.doctrine_history.push((self.time, doctrine));
         let sol = self.galaxy.star(StarId::SOL);
         self.emit(&sol, ReportKind::DoctrineChange, format!(
-            "Doctrine broadcast from Sol: {:?}{}. Propagating at c.",
+            "Doctrine broadcast from Sol: {:?}{}{}. Propagating at c.",
             doctrine.policy,
-            if doctrine.respect_warnings { "" } else { " (ignore warnings)" }
+            if doctrine.respect_warnings { "" } else { " (ignore warnings)" },
+            match doctrine.invest {
+                Some(a) => format!(", engineer {a:?}"),
+                None => String::new(),
+            }
         ));
     }
 
@@ -309,7 +328,7 @@ impl Simulation {
                     star: star_id,
                     founded_at: SimTime::ZERO, // set on FactoryOnline
                     founder: probe_id,
-                    launches_remaining: 0,
+                    material_remaining: 0,
                     dormant: 0,
                     probes_built: 0,
                 },
@@ -594,17 +613,25 @@ impl Simulation {
     /// and start its replication line.
     fn found_colony(&mut self, star_id: StarId, founder: ProbeId, now: SimTime) {
         let star = self.galaxy.star(star_id);
-        let launches = (self.cfg.launches_per_colony * star.richness).round().max(2.0) as u32;
+        // Fabrication scales how many probes a colony gets out of the same
+        // material, not just how fast it stamps them: replication interval
+        // is ~3 years against transits of centuries, so build *rate* is
+        // nearly irrelevant. Yield is what makes the stat worth having.
+        let founder_fab = self.probes.get(&founder).map(|p| p.spec.fabrication).unwrap_or(1.0);
+        let launches = (self.cfg.launches_per_colony * star.richness * founder_fab)
+            .round()
+            .max(2.0) as u32;
+        let material = launches * MATERIAL_PER_PROBE;
         let colony = self.colonies.entry(star_id).or_insert(Colony {
             star: star_id,
             founded_at: now,
             founder,
-            launches_remaining: 0,
+            material_remaining: 0,
             dormant: 0,
             probes_built: 0,
         });
         colony.founded_at = now;
-        colony.launches_remaining = launches;
+        colony.material_remaining = material;
         if let Some(probe) = self.probes.get_mut(&founder) {
             probe.state = ProbeState::Settled { star: star_id };
         }
@@ -687,13 +714,11 @@ impl Simulation {
     fn on_replica_complete(&mut self, star_id: StarId) {
         let star = self.galaxy.star(star_id);
         let colony = match self.colonies.get_mut(&star_id) {
-            Some(c) if c.launches_remaining > 0 => c,
+            Some(c) if c.material_remaining >= MATERIAL_PER_PROBE => c,
             _ => return,
         };
-        colony.launches_remaining -= 1;
-        colony.probes_built += 1;
         let founder = colony.founder;
-        let remaining = colony.launches_remaining;
+        colony.probes_built += 1;
         self.stats.probes_built += 1;
 
         // Child inherits the founder's spec with replication drift.
@@ -706,8 +731,25 @@ impl Simulation {
                 0,
                 LineageId(0),
             ));
+        let invest = self.governing_doctrine(parent_line, star.x, star.y).invest;
         let mut mrng = self.rng.fork(crate::rng::hash_n(&[star_id.key(), self.stats.probes_built as u64]));
-        let child_spec = parent_spec.mutate(&mut mrng, self.cfg.drift);
+        let child_spec = parent_spec.mutate(&mut mrng, self.cfg.drift, invest);
+
+        // An engineered probe eats more of the colony's accessible
+        // material than a mass-produced one.
+        let cost = if invest.is_some() {
+            self.stats.directed_replicas += 1;
+            MATERIAL_PER_ENGINEERED_PROBE
+        } else {
+            MATERIAL_PER_PROBE
+        };
+        let remaining = match self.colonies.get_mut(&star_id) {
+            Some(c) => {
+                c.material_remaining = c.material_remaining.saturating_sub(cost);
+                c.material_remaining
+            }
+            None => 0,
+        };
         let child_id = self.alloc_probe_id();
         self.stats.max_generation = self.stats.max_generation.max(parent_gen + 1);
 
@@ -732,9 +774,12 @@ impl Simulation {
         );
         self.launch_from(star_id, child_id);
 
-        if remaining > 0 {
+        if remaining >= MATERIAL_PER_PROBE {
             let fabrication = child_spec.fabrication; // latest line off the fab
-            let interval = self.cfg.replication_years / (star.richness * fabrication);
+            let mut interval = self.cfg.replication_years / (star.richness * fabrication);
+            if invest.is_some() {
+                interval *= INVESTMENT_TIME_COST; // engineered, not stamped out
+            }
             self.queue
                 .schedule(self.time.plus_years(interval), Event::ReplicaComplete { star: star_id });
         } else {
@@ -862,7 +907,16 @@ impl Simulation {
         self.claimed.insert(target.id);
 
         // Attrition roll, made now (deterministically) for the whole trip.
-        let p_loss = (self.cfg.loss_per_ly * dist / spec.reliability).clamp(0.0, 0.95);
+        //
+        // Impact energy against the interstellar medium scales with v², so
+        // a faster probe is a more fragile one. This is what stops "just
+        // build faster drives" from being a free win: speed compounds
+        // expansion, but it also compounds the odds of not arriving, and
+        // only reliability buys that back.
+        let speed_ratio = spec.cruise_speed_c / self.cfg.cruise_speed_c;
+        let p_loss = (self.cfg.loss_per_ly * dist * speed_ratio * speed_ratio
+            / spec.reliability)
+            .clamp(0.0, 0.95);
         let mut trng = self
             .rng
             .fork(crate::rng::hash_n(&[probe_id.0, target.id.key(), 0x10]));
@@ -1016,7 +1070,7 @@ impl Simulation {
                 acc,
                 id.key(),
                 c.founded_at.0,
-                c.launches_remaining as u64,
+                c.material_remaining as u64,
                 c.dormant as u64,
                 c.probes_built as u64,
             ]);

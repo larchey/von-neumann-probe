@@ -43,6 +43,32 @@ pub enum TargetPolicy {
     Outward,
 }
 
+/// Which axis a colony spends extra fabrication time improving. Directed
+/// investment biases replication drift instead of leaving it a pure random
+/// walk — the player's one way to steer evolution rather than watch it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SpecAxis {
+    Speed,
+    Fabrication,
+    Reliability,
+}
+
+/// Directed replication costs this multiple of the normal build time.
+///
+/// Time alone can't be the price: transit takes centuries while a replica
+/// takes ~3 years, so any build-time penalty is noise against the decades
+/// a faster drive saves — engineering came out strictly better. The real
+/// cost is material (see MATERIAL_PER_PROBE); this is flavor on top.
+pub const INVESTMENT_TIME_COST: f64 = 1.25;
+
+/// A colony's budget is tracked in abstract material units rather than
+/// whole probes, so the cost of engineering can be a real 1.5× instead of
+/// a brutal 2× — at 2× the halved output swamped the slow (~3%/generation)
+/// gain from directed drift, and engineering was never worth it.
+pub const MATERIAL_PER_PROBE: u32 = 2;
+/// Material for one engineered replica: better tooling, more waste.
+pub const MATERIAL_PER_ENGINEERED_PROBE: u32 = 3;
+
 /// Tunable parameters for a simulation run. All time values are in years,
 /// all distances in light-years, speeds in fractions of c.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -58,7 +84,8 @@ pub struct SimConfig {
     pub factory_build_years: f64,
     /// Interval between replicas from one colony at richness 1.0.
     pub replication_years: f64,
-    /// Launch budget for a richness-1.0 colony (scaled by richness).
+    /// Probes a richness-1.0, fabrication-1.0 colony can build before its
+    /// accessible material runs out.
     pub launches_per_colony: f64,
     /// Systems below this richness are not worth colonizing; the probe
     /// refuels and moves on.
@@ -77,6 +104,8 @@ pub struct SimConfig {
     /// If true, stop colonizing a Watcher's space once they issue a formal
     /// warning; if false, push on until they start shooting.
     pub respect_warnings: bool,
+    /// Axis to engineer into replicas, at a cost in material per probe.
+    pub invest: Option<SpecAxis>,
 }
 
 impl Default for SimConfig {
@@ -96,6 +125,7 @@ impl Default for SimConfig {
             drift: 0.03,
             policy: TargetPolicy::Nearest,
             respect_warnings: true,
+            invest: None,
         }
     }
 }

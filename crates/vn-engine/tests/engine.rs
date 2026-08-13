@@ -3,7 +3,7 @@ use vn_engine::sim::Doctrine;
 use vn_engine::galaxy::{Galaxy, StarId};
 use vn_engine::sim::Simulation;
 use vn_engine::time::SimTime;
-use vn_engine::{SimConfig, TargetPolicy};
+use vn_engine::{SimConfig, SpecAxis, TargetPolicy};
 
 #[test]
 fn galaxy_generation_is_stable() {
@@ -191,6 +191,60 @@ fn lineages_fork_as_drift_accumulates() {
     }
 }
 
+/// Investment is a long game: material costs bite immediately, directed
+/// drift compounds. Each axis should beat undirected growth eventually,
+/// and each should win at something different.
+#[test]
+fn investment_directs_evolution_and_pays_off_late() {
+    let run = |invest, years: f64| {
+        let mut sim = Simulation::new(SimConfig { invest, ..SimConfig::default() });
+        sim.run_until(SimTime::from_years(years));
+        sim
+    };
+
+    // Directed drift moves the chosen axis, and only upward.
+    let speed_sim = run(Some(SpecAxis::Speed), 2500.0);
+    let base_sim = run(None, 2500.0);
+    let best_speed = |s: &Simulation| {
+        s.lineages
+            .values()
+            .map(|l| l.template.cruise_speed_c)
+            .fold(0.0, f64::max)
+    };
+    assert!(
+        best_speed(&speed_sim) > best_speed(&base_sim),
+        "engineering speed should raise cruise speed: {:.3} vs {:.3}",
+        best_speed(&speed_sim),
+        best_speed(&base_sim)
+    );
+
+    // Over deep time every investment outgrows undirected replication —
+    // that's what makes engineering worth its material premium.
+    let base = run(None, 8000.0);
+    for axis in [SpecAxis::Speed, SpecAxis::Fabrication, SpecAxis::Reliability] {
+        let s = run(Some(axis), 8000.0);
+        assert!(
+            s.population() > base.population(),
+            "{axis:?} should beat undirected growth by Y8000: {} vs {}",
+            s.population(),
+            base.population()
+        );
+    }
+
+    // Speed buys reach and pays for it in wrecks; fabrication buys density.
+    let speed = run(Some(SpecAxis::Speed), 8000.0);
+    let fab = run(Some(SpecAxis::Fabrication), 8000.0);
+    assert!(speed.frontier_radius_ly() > fab.frontier_radius_ly());
+    assert!(speed.stats.probes_lost > fab.stats.probes_lost * 3);
+    let density = |s: &Simulation| s.population() as f64 / s.colonies.len() as f64;
+    assert!(
+        density(&fab) > density(&speed),
+        "fabrication should yield more probes per colony: {:.1} vs {:.1}",
+        density(&fab),
+        density(&speed)
+    );
+}
+
 #[test]
 fn distant_drifted_lines_secede() {
     let mut sim = Simulation::new(SimConfig::default());
@@ -223,6 +277,7 @@ fn doctrine_broadcasts_propagate_at_lightspeed() {
     sim.broadcast_doctrine(Doctrine {
         policy: TargetPolicy::Outward,
         respect_warnings: true,
+        invest: None,
     });
 
     // At Sol the new order is in force immediately.

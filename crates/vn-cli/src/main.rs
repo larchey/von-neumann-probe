@@ -8,7 +8,7 @@
 
 use vn_engine::sim::{Doctrine, Simulation};
 use vn_engine::time::SimTime;
-use vn_engine::{SimConfig, TargetPolicy};
+use vn_engine::{SimConfig, SpecAxis, TargetPolicy};
 use std::io::{BufRead, Write};
 
 struct Args {
@@ -22,6 +22,7 @@ struct Args {
     load: Option<String>,
     map: bool,
     interactive: bool,
+    invest: Option<SpecAxis>,
 }
 
 fn parse_args() -> Args {
@@ -36,6 +37,7 @@ fn parse_args() -> Args {
         load: None,
         map: false,
         interactive: false,
+        invest: None,
     };
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {
@@ -59,12 +61,25 @@ fn parse_args() -> Args {
             "--bold" => args.bold = true,
             "--save" => args.save = Some(grab()),
             "--load" => args.load = Some(grab()),
+            "--invest" => {
+                args.invest = match grab().as_str() {
+                    "speed" => Some(SpecAxis::Speed),
+                    "fab" | "fabrication" => Some(SpecAxis::Fabrication),
+                    "rel" | "reliability" => Some(SpecAxis::Reliability),
+                    "none" => None,
+                    other => {
+                        eprintln!("unknown investment axis: {other} (speed|fab|rel|none)");
+                        std::process::exit(2);
+                    }
+                }
+            }
             "--map" => args.map = true,
             "--interactive" | "-i" => args.interactive = true,
             "--help" | "-h" => {
                 println!(
                     "vnp [--seed N] [--years N] [--step N] [--reports N] \
-                     [--policy nearest|richest|outward] [--bold] [--save FILE] [--load FILE] [--map]"
+                     [--policy nearest|richest|outward] [--invest speed|fab|rel] \
+                     [--bold] [--save FILE] [--load FILE] [--map]"
                 );
                 println!("  --bold   ignore Watcher warnings (colonize until they shoot)");
                 println!("  --years  with --load: additional years to simulate");
@@ -103,6 +118,7 @@ fn main() {
             seed: args.seed,
             policy: args.policy,
             respect_warnings: !args.bold,
+            invest: args.invest,
             ..SimConfig::default()
         }),
     };
@@ -125,6 +141,9 @@ fn main() {
         cfg.policy,
         if cfg.respect_warnings { "" } else { " (bold)" }
     );
+    if let Some(axis) = cfg.invest {
+        println!("engineering {axis:?} into every replica (slower builds, directed drift)\n");
+    }
 
     println!(
         "{:>6}  {:>7}  {:>8}  {:>9}  {:>9}  {:>7}  {:>6}  {:>6}  {:>7}",
@@ -310,6 +329,28 @@ fn interactive(sim: &mut Simulation) {
                     sim.frontier_radius_ly()
                 );
             }
+            ["invest", axis] => {
+                let invest = match *axis {
+                    "speed" => Some(SpecAxis::Speed),
+                    "fab" | "fabrication" => Some(SpecAxis::Fabrication),
+                    "rel" | "reliability" => Some(SpecAxis::Reliability),
+                    "none" => None,
+                    _ => {
+                        println!("usage: invest speed|fab|rel|none");
+                        continue;
+                    }
+                };
+                let current = sim.doctrine_at(0.0, 0.0);
+                sim.broadcast_doctrine(Doctrine { invest, ..current });
+                match invest {
+                    Some(a) => println!(
+                        "broadcast sent: engineer {a:?}. Builds slow by {:.0}%, but drift on \
+                         that axis only goes up — and directed lines diverge (and secede) faster.",
+                        (vn_engine::INVESTMENT_TIME_COST - 1.0) * 100.0
+                    ),
+                    None => println!("broadcast sent: replicate as fast as possible."),
+                }
+            }
             ["bold", v @ ("on" | "off")] => {
                 let current = sim.doctrine_at(0.0, 0.0);
                 sim.broadcast_doctrine(Doctrine {
@@ -332,6 +373,7 @@ fn interactive(sim: &mut Simulation) {
                 println!("lines            your descendant lineages and how they've drifted");
                 println!("log <n>          last n received signals");
                 println!("policy <p>       broadcast doctrine: nearest|richest|outward (travels at c!)");
+                println!("invest <axis>    engineer speed|fab|rel into replicas, or none (travels at c!)");
                 println!("bold on|off      ignore/respect Watcher warnings (travels at c!)");
                 println!("save <file>      write save");
                 println!("quit             exit");

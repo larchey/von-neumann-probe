@@ -8,6 +8,7 @@ use crate::galaxy::StarId;
 use crate::lineage::LineageId;
 use crate::rng::SplitMix64;
 use crate::time::SimTime;
+use crate::SpecAxis;
 use serde::{Deserialize, Serialize};
 
 #[derive(
@@ -33,14 +34,45 @@ impl ProbeSpec {
 
     /// Imperfect self-replication: each stat drifts by ~±`drift`,
     /// multiplicatively, clamped to sane bounds.
-    pub fn mutate(&self, rng: &mut SplitMix64, drift: f64) -> Self {
-        let mut jig = |v: f64, lo: f64, hi: f64| {
-            (v * (1.0 + rng.range_f64(-drift, drift))).clamp(lo, hi)
+    ///
+    /// With `invest` set, that axis is deliberately engineered rather than
+    /// left to chance: its mutation is drawn from [0, +2·drift) instead of
+    /// [−drift, +drift). Same expected magnitude of change, but it can only
+    /// go up — which also means directed lines diverge from their template
+    /// *faster*, and so fork and secede sooner.
+    pub fn mutate(
+        &self,
+        rng: &mut SplitMix64,
+        drift: f64,
+        invest: Option<SpecAxis>,
+    ) -> Self {
+        let mut jig = |v: f64, lo: f64, hi: f64, directed: bool| {
+            let delta = if directed {
+                rng.range_f64(0.0, 2.0 * drift)
+            } else {
+                rng.range_f64(-drift, drift)
+            };
+            (v * (1.0 + delta)).clamp(lo, hi)
         };
         Self {
-            cruise_speed_c: jig(self.cruise_speed_c, 0.01, 0.5),
-            fabrication: jig(self.fabrication, 0.25, 4.0),
-            reliability: jig(self.reliability, 0.25, 4.0),
+            cruise_speed_c: jig(
+                self.cruise_speed_c,
+                0.01,
+                0.5,
+                invest == Some(SpecAxis::Speed),
+            ),
+            fabrication: jig(
+                self.fabrication,
+                0.25,
+                4.0,
+                invest == Some(SpecAxis::Fabrication),
+            ),
+            reliability: jig(
+                self.reliability,
+                0.25,
+                4.0,
+                invest == Some(SpecAxis::Reliability),
+            ),
         }
     }
 }
