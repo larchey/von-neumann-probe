@@ -272,6 +272,7 @@ impl Simulation {
             Event::ReplicaComplete { star } => self.on_replica_complete(star),
             Event::ProbeLost { probe, target } => self.on_probe_lost(probe, target),
             Event::CivStrike { star, civ } => self.on_civ_strike(star, civ),
+            Event::CivTransmission { civ } => self.on_civ_transmission(civ),
         }
     }
 
@@ -509,6 +510,14 @@ impl Simulation {
                  Territory radius ~{:.0} ly.",
                 probe_id.0, civ.name(), self.galaxy.name(star.id), civ.radius_at(years)
             ));
+            // They can't answer before light from our probe reaches them.
+            if civ.disposition.transmission().is_some() {
+                let light_years_to_them = civ.dist_to(star.x, star.y);
+                self.queue.schedule(
+                    self.time.plus_years(light_years_to_them),
+                    Event::CivTransmission { civ: civ.key },
+                );
+            }
         }
         match civ.disposition {
             Disposition::Extinct => {
@@ -632,6 +641,28 @@ impl Simulation {
                 );
             }
         }
+    }
+
+    /// A civilization has seen our probe and replies. The reply is emitted
+    /// from *their* homeworld, so `emit` gives it the correct additional
+    /// light-lag on the way to Sol: you hear them twice-delayed — once for
+    /// them to see you, once for the answer to cross.
+    fn on_civ_transmission(&mut self, civ_key: CivKey) {
+        let Some(civ) = self.civ_field.civ_by_key(civ_key) else { return };
+        let Some(message) = civ.disposition.transmission() else { return };
+        // Reports carry a position, so speak from the homeworld.
+        let origin = Star {
+            id: StarId::SOL, // only x/y are used for lag and mapping
+            x: civ.x,
+            y: civ.y,
+            richness: 1.0,
+        };
+        self.emit_civ(&origin, ReportKind::Transmission, Some(civ_key), format!(
+            "TRANSMISSION from {} ({:.0} ly): \"{}\"",
+            civ.name(),
+            (civ.x * civ.x + civ.y * civ.y).sqrt(),
+            message
+        ));
     }
 
     fn on_civ_strike(&mut self, star_id: StarId, civ_key: CivKey) {

@@ -54,6 +54,31 @@ pub enum Fate {
     Silence,
 }
 
+impl Disposition {
+    /// What they transmit toward Sol once they've seen one of our probes.
+    /// Expansionists don't negotiate; the others have something to say.
+    pub fn transmission(self) -> Option<&'static str> {
+        match self {
+            Disposition::Extinct => None,
+            Disposition::Watcher => Some(
+                "We have been watching your machines multiply. We have seen this pattern \
+                 before, many times, and we know how it ends. You have room. Do not \
+                 mistake our patience for permission.",
+            ),
+            Disposition::Territorial => Some(
+                "Your craft carries a replication signature. Our boundaries are marked in \
+                 every band you can receive. Vessels that cross them will not be warned \
+                 again.",
+            ),
+            Disposition::Expansionist => Some(
+                "No signal resolves from the transmission — only a carrier tone, \
+                 repeating, of the same design as our own telemetry. Their border has \
+                 not stopped moving since we detected it.",
+            ),
+        }
+    }
+}
+
 impl Fate {
     pub fn describe(self) -> &'static str {
         match self {

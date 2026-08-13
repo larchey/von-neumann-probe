@@ -25,6 +25,10 @@ pub enum Event {
     ProbeLost { probe: ProbeId, target: StarId },
     /// A civilization's interceptors reach and destroy one of our colonies.
     CivStrike { star: StarId, civ: (i32, i32) },
+    /// Light from our probe has reached a civilization's homeworld; they
+    /// now know we exist, and answer. Their reply still has to cross to
+    /// Sol on its own.
+    CivTransmission { civ: (i32, i32) },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

@@ -39,6 +39,8 @@ pub enum ReportKind {
     Secession,
     /// A dead civilization's archives, recording how they ended.
     Archive,
+    /// A living civilization has answered.
+    Transmission,
 }
 
 impl ReportKind {
@@ -54,6 +56,7 @@ impl ReportKind {
                 | ReportKind::CivWarning
                 | ReportKind::ProbeKilled
                 | ReportKind::Archive
+                | ReportKind::Transmission
         )
     }
 }

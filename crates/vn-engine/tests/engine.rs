@@ -173,6 +173,42 @@ fn core_behaviors_hold_across_seeds() {
     }
 }
 
+/// A reply has to cross space twice: light from our probe must reach them
+/// before they can answer, and their answer must then reach Sol.
+#[test]
+fn living_civilizations_answer_and_the_dead_stay_silent() {
+    use vn_engine::report::ReportKind;
+    let mut sim = Simulation::new(SimConfig::default());
+    sim.run_until(SimTime::from_years(4000.0));
+
+    let transmissions: Vec<_> = sim
+        .reports
+        .iter()
+        .filter(|r| r.kind == ReportKind::Transmission)
+        .collect();
+    assert!(!transmissions.is_empty(), "someone should have answered by Y4000");
+
+    for t in &transmissions {
+        let civ_key = t.civ.expect("transmissions name their sender");
+        let civ = sim.civ_field.civ_by_key(civ_key).expect("sender exists");
+        assert_ne!(
+            civ.disposition,
+            vn_engine::civs::Disposition::Extinct,
+            "the dead do not transmit"
+        );
+        // They must have been contacted before they could reply.
+        let met = sim.relations[&civ_key].met_at;
+        assert!(
+            t.occurred_at > met,
+            "{} answered before we arrived",
+            civ.name()
+        );
+        // And the answer is emitted from their homeworld, so it carries
+        // that world's distance as extra lag.
+        assert!((t.distance_ly - civ.dist_to(0.0, 0.0)).abs() < 0.01);
+    }
+}
+
 #[test]
 fn dead_civilizations_record_how_they_died() {
     let f = CivField::new(42, 16.0);
