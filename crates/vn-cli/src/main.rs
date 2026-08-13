@@ -344,6 +344,7 @@ fn interactive(sim: &mut Simulation) {
             ["map", "all"] => render_map(sim),
             ["lines"] => show_lineages(sim, 15),
             ["score"] => scorecard(sim),
+            ["timeline"] => timeline(sim),
             ["history"] => {
                 if sim.fates_learned.is_empty() {
                     println!("No dead civilizations' archives recovered yet.");
@@ -454,6 +455,7 @@ fn interactive(sim: &mut Simulation) {
                 println!("log <n>          last n received signals");
                 println!("policy <p>       broadcast doctrine: nearest|richest|outward|survey (travels at c!)");
                 println!("score            mission scorecard");
+                println!("timeline         the story of the mission so far, in order");
                 println!("invest <axis>    engineer speed|fab|rel into replicas, or none (travels at c!)");
                 println!("bold on|off      ignore/respect Watcher warnings (travels at c!)");
                 println!("save <file>      write save");
@@ -463,6 +465,57 @@ fn interactive(sim: &mut Simulation) {
             _ => println!("unknown command; 'help' lists commands."),
         }
     }
+}
+
+/// The mission's defining moments in the order Sol learned them — the
+/// first of each kind of thing that ever happened. Built only from
+/// received reports, so it is the history as mission control knows it,
+/// not as it occurred.
+fn timeline(sim: &Simulation) {
+    use vn_engine::report::ReportKind::*;
+
+    let firsts = [
+        (ColonyFounded, "first colony"),
+        (SystemRejected, "first system rejected"),
+        (AnomalyFound, "first salvage"),
+        (HazardLoss, "first probe lost to a hazard"),
+        (LineageFork, "first lineage split off"),
+        (GardenWorld, "FIRST GARDEN WORLD"),
+        (FirstContact, "first contact"),
+        (Transmission, "first reply"),
+        (Archive, "first dead civilization read"),
+        (CivWarning, "first warning"),
+        (ProbeKilled, "first probe destroyed by another power"),
+        (Secession, "first line stopped taking orders"),
+        (ColonyLost, "first colony destroyed"),
+    ];
+
+    let received = sim.reports_received_by(sim.time);
+    let mut beats: Vec<(f64, &str, &str)> = Vec::new();
+    for (kind, label) in firsts {
+        if let Some(r) = received.iter().find(|r| r.kind == kind) {
+            beats.push((r.received_at.as_years(), label, r.text.as_str()));
+        }
+    }
+    beats.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+
+    println!("\n─── the mission so far, as Sol learned it ───");
+    if beats.is_empty() {
+        println!("Nothing has reached us yet.");
+        return;
+    }
+    for (year, label, text) in beats {
+        println!("Y{year:>7.0}  {label}");
+        println!("          {}", truncate(text, 96));
+    }
+}
+
+fn truncate(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        return s.to_string();
+    }
+    let cut: String = s.chars().take(max - 1).collect();
+    format!("{}…", cut.trim_end())
 }
 
 /// End-of-mission summary. Garden worlds are the headline because they
