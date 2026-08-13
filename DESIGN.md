@@ -67,6 +67,14 @@ stop listening entirely.
   replicator waves that overrun you on a closed-form schedule).
 - **Light lag** — every event reaches the player at *c*. The map you can
   draw is built only from signals that have arrived.
+- **Going dark** — seceded lines stop transmitting. Their colonies and
+  their discoveries never reach Sol, so a garden world they find is one
+  you never learn about. Control is what converts discovery into score.
+- **They answer** — meeting a living civilization provokes a reply that
+  cannot be sent before light from your probe reaches them, and then has
+  to cross to Sol. You hear everyone twice-delayed.
+- **The galaxy's record** — dead civilizations' archives say what ended
+  them. The most common answer is their own self-replicating probes.
 
 ## Emergent behavior worth protecting
 
@@ -84,6 +92,11 @@ break them:
    leaving civ territories as visible holes in an otherwise filled sphere.
 4. **Stale frontiers.** The known-space map's outer edge is always older
    than its interior, because that's how long the light took.
+5. **Control converts discovery into score.** Survey doctrine finds the
+   most living worlds and reports the fewest, because the same long hops
+   that reach them push its descendants past the range where they still
+   answer. It wins the early game and loses the late one — an inversion
+   nobody wrote, produced by composing secession with going dark.
 
 ## Design rules
 
@@ -96,12 +109,14 @@ break them:
 
 ## Next layers (intended order)
 
-1. **Spec investment** — let colonies trade replication rate for better
-   children, so the player can steer evolution instead of only watching it.
-2. **Garden-world doctrine** — a survey-first policy that trades growth
-   for discovery; makes the mission scoreboard a real strategic axis.
-3. **Contact decisions** — respond to first contact while the light-lag
-   makes any response centuries late by arrival.
-4. **Rival replicator conflict** — independent lines and Expansionist civs
-   contesting the same systems, with the player caught between.
+1. **Rival replicator conflict** — independent lines currently still
+   respect each other's claims. Making seceded lines and Expansionist
+   civs contest the same systems would give the late game a real
+   antagonist grown from your own hull design.
+2. **Contact decisions** — let the player answer a transmission, knowing
+   the reply will be centuries stale on arrival.
+3. **Sol matters** — a home that can be lost, or that stops listening,
+   to give the deep-time arc an ending rather than an asymptote.
+4. **Statistical aggregation** — compress interior colonies to per-region
+   counts, to push past ~10^7 probes.
 5. **TUI frontend** — live map, scrolling log, doctrine panel.
