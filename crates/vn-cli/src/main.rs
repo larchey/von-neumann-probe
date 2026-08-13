@@ -19,6 +19,7 @@ struct Args {
     bold: bool,
     save: Option<String>,
     load: Option<String>,
+    map: bool,
 }
 
 fn parse_args() -> Args {
@@ -31,6 +32,7 @@ fn parse_args() -> Args {
         bold: false,
         save: None,
         load: None,
+        map: false,
     };
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {
@@ -54,10 +56,11 @@ fn parse_args() -> Args {
             "--bold" => args.bold = true,
             "--save" => args.save = Some(grab()),
             "--load" => args.load = Some(grab()),
+            "--map" => args.map = true,
             "--help" | "-h" => {
                 println!(
                     "vnp [--seed N] [--years N] [--step N] [--reports N] \
-                     [--policy nearest|richest|outward] [--bold] [--save FILE] [--load FILE]"
+                     [--policy nearest|richest|outward] [--bold] [--save FILE] [--load FILE] [--map]"
                 );
                 println!("  --bold   ignore Watcher warnings (colonize until they shoot)");
                 println!("  --years  with --load: additional years to simulate");
@@ -154,6 +157,10 @@ fn main() {
             r.text
         );
     }
+    if args.map {
+        render_map(&sim);
+    }
+
     if !sim.relations.is_empty() {
         println!("\n─── known civilizations ───");
         for (key, rel) in &sim.relations {
@@ -188,4 +195,80 @@ fn main() {
             Err(e) => eprintln!("failed to save {path}: {e}"),
         }
     }
+}
+
+/// Top-down chart of the expansion sphere (omniscient debug view, not the
+/// light-lagged player view). One character ≈ (2R/width) light-years.
+fn render_map(sim: &Simulation) {
+    use vn_engine::civs::Disposition;
+
+    const W: i32 = 71;
+    const H: i32 = 35;
+    let radius = (sim.frontier_radius_ly() * 1.15 + 25.0).max(60.0);
+    let years = sim.time.as_years();
+    // Chars are ~2× taller than wide; scale y by 2 to keep circles round.
+    let sx = 2.0 * radius / W as f64;
+    let sy = 2.0 * radius / H as f64;
+    let to_cell = |x: f64, y: f64| -> Option<(i32, i32)> {
+        let cx = (x / sx).round() as i32 + W / 2;
+        let cy = (y / sy).round() as i32 + H / 2;
+        (cx >= 0 && cx < W && cy >= 0 && cy < H).then_some((cx, cy))
+    };
+    let mut grid = vec![b' '; (W * H) as usize];
+    let mut put = |cell: Option<(i32, i32)>, ch: u8, grid: &mut Vec<u8>| {
+        if let Some((cx, cy)) = cell {
+            grid[(cy * W + cx) as usize] = ch;
+        }
+    };
+
+    // Civ territories as background fill.
+    for cy in 0..H {
+        for cx in 0..W {
+            let x = (cx - W / 2) as f64 * sx;
+            let y = (cy - H / 2) as f64 * sy;
+            if let Some(civ) = sim.civ_field.territory_at(x, y, years) {
+                let ch = match civ.disposition {
+                    Disposition::Extinct => b'.',
+                    Disposition::Watcher => b'w',
+                    Disposition::Territorial => b't',
+                    Disposition::Expansionist => b'x',
+                };
+                grid[(cy * W + cx) as usize] = ch;
+            }
+        }
+    }
+    // Claimed (in-flight targets): the fringe of the wave.
+    for id in sim.claimed_stars() {
+        let s = sim.galaxy.star(*id);
+        put(to_cell(s.x, s.y), b'\'', &mut grid);
+    }
+    // Colonies.
+    for id in sim.colonies.keys() {
+        let s = sim.galaxy.star(*id);
+        put(to_cell(s.x, s.y), b'o', &mut grid);
+    }
+    // Civ homeworlds over their fill.
+    for civ in sim.civ_field.civs_near(0.0, 0.0, radius * 1.5, years) {
+        let ch = match civ.disposition {
+            Disposition::Extinct => b'E',
+            Disposition::Watcher => b'W',
+            Disposition::Territorial => b'T',
+            Disposition::Expansionist => b'X',
+        };
+        put(to_cell(civ.x, civ.y), ch, &mut grid);
+    }
+    put(to_cell(0.0, 0.0), b'@', &mut grid);
+
+    println!(
+        "\n─── galaxy chart Y{:.0} — {:.0} ly across (omniscient view) ───",
+        years,
+        2.0 * radius
+    );
+    for cy in 0..H {
+        let row = &grid[(cy * W) as usize..((cy + 1) * W) as usize];
+        println!("{}", std::str::from_utf8(row).unwrap());
+    }
+    println!(
+        "@ Sol   o colony   ' target   E/W/T/X civ home   . ruins  w watcher  t territorial  x swarm"
+    );
 }

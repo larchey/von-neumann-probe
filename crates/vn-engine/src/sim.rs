@@ -624,6 +624,12 @@ impl Simulation {
             .count()
     }
 
+    /// Stars currently claimed (settled or being flown to) — the fringe of
+    /// the wave, for map rendering.
+    pub fn claimed_stars(&self) -> impl Iterator<Item = &StarId> {
+        self.claimed.iter()
+    }
+
     /// Order-independent state fingerprint for determinism tests.
     pub fn digest(&self) -> u64 {
         use crate::rng::hash_n;

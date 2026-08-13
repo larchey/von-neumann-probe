@@ -13,7 +13,9 @@ a headless CLI runner (`vn-cli`). No graphics yet — gameplay first.
 ```bash
 cargo test                 # engine test suite
 cargo run --release --bin vnp -- --years 500
-cargo run --release --bin vnp -- --seed 7 --years 5000 --step 500
+cargo run --release --bin vnp -- --seed 7 --years 5000 --step 500 --map
+cargo run --release --bin vnp -- --policy richest --bold --save empire.json
+cargo run --release --bin vnp -- --load empire.json --years 1000
 ```
 
 Sample output:
@@ -42,6 +44,22 @@ Everything in the design flows from that:
 | Imperfect replication | Each generation's spec drifts — by gen 25 your probes are not what you launched |
 | Interstellar hazards | Transit attrition; lost probes release their claim for another colony to retry |
 | Finite accessible material | Colonies saturate and shut down their replication lines |
+| No real-time control | You set doctrine (`--policy`, `--bold`); every colony executes it autonomously |
+
+## You are not alone
+
+The deep galaxy is procedurally inhabited (never within 120 ly of Sol —
+the early game is yours). Civs are lazy formulas like everything else:
+existence and disposition are hashed from the seed, territory is
+closed-form in time, and reactions are events traveling at sublight speed.
+
+- **Extinct** — ruins that permanently upgrade the lineage that finds them
+- **Watchers** — tolerant elders; ignore their warning and colonies start
+  dying to interceptors launched from their homeworld (real flight time)
+- **Territorial** — fixed borders, lethal pickets; the expansion wave
+  learns to flow around them, leaving enclaves in your sphere
+- **Expansionist** — rival replicator waves; their border growth schedules
+  the exact year each of your colonies gets overrun
 
 ## Engine architecture (why it scales)
 
@@ -71,11 +89,14 @@ See [DESIGN.md](DESIGN.md) for gameplay direction and
 - [x] Deterministic DES core, procedural galaxy, probe lifecycle
 - [x] Replication drift, attrition, saturation, light-lagged reports
 - [x] CLI runner + test suite
-- [ ] Player directives (steer expansion policy, name lineages)
-- [ ] Save/load (serde is already wired through every type)
-- [ ] Aggregation layer for 10⁸+ probes (statistical colonies)
-- [ ] Tech/spec investment choices (speed vs reliability vs fabrication)
-- [ ] Threats & anomalies discovered at the frontier
+- [x] Advanced civilizations (4 dispositions, first contact, retaliation)
+- [x] Expansion doctrines (`nearest` / `richest` / `outward`, `--bold`)
+- [x] Save/load with bit-identical resume (digest-verified)
+- [x] ASCII galaxy chart (`--map`)
+- [ ] Interactive mode: change doctrine mid-run, respond to first contact
+- [ ] Spec investment choices (speed vs reliability vs fabrication)
+- [ ] Aggregation layer for 10⁸+ probes (statistical colonies + report pruning)
+- [ ] Player-visible lag: strategic view built only from received reports
 - [ ] TUI map view; graphical frontend later
 
 ## License
