@@ -52,8 +52,9 @@ fn parse_args() -> Args {
                     "nearest" => TargetPolicy::Nearest,
                     "richest" => TargetPolicy::Richest,
                     "outward" => TargetPolicy::Outward,
+                    "survey" => TargetPolicy::Survey,
                     other => {
-                        eprintln!("unknown policy: {other} (nearest|richest|outward)");
+                        eprintln!("unknown policy: {other} (nearest|richest|outward|survey)");
                         std::process::exit(2);
                     }
                 }
@@ -209,11 +210,11 @@ fn main() {
         }
     }
 
+    scorecard(&sim);
+
     println!(
-        "\ngarden worlds found: {} | anomalies salvaged: {} | lost to hazards: {} | mean colony richness: {:.3}",
-        sim.stats.garden_worlds,
+        "\nanomalies salvaged: {} | mean colony richness: {:.3}",
         sim.stats.anomalies_salvaged,
-        sim.stats.hazard_losses,
         sim.mean_colony_richness()
     );
     println!(
@@ -284,6 +285,7 @@ fn interactive(sim: &mut Simulation) {
             ["map"] => render_known_map(sim),
             ["map", "all"] => render_map(sim),
             ["lines"] => show_lineages(sim, 15),
+            ["score"] => scorecard(sim),
             ["civs"] => {
                 if sim.relations.is_empty() {
                     println!("no contact with other civilizations yet.");
@@ -316,8 +318,9 @@ fn interactive(sim: &mut Simulation) {
                     "nearest" => TargetPolicy::Nearest,
                     "richest" => TargetPolicy::Richest,
                     "outward" => TargetPolicy::Outward,
+                    "survey" => TargetPolicy::Survey,
                     _ => {
-                        println!("usage: policy nearest|richest|outward");
+                        println!("usage: policy nearest|richest|outward|survey");
                         continue;
                     }
                 };
@@ -372,7 +375,8 @@ fn interactive(sim: &mut Simulation) {
                 println!("civs             known civilizations");
                 println!("lines            your descendant lineages and how they've drifted");
                 println!("log <n>          last n received signals");
-                println!("policy <p>       broadcast doctrine: nearest|richest|outward (travels at c!)");
+                println!("policy <p>       broadcast doctrine: nearest|richest|outward|survey (travels at c!)");
+                println!("score            mission scorecard");
                 println!("invest <axis>    engineer speed|fab|rel into replicas, or none (travels at c!)");
                 println!("bold on|off      ignore/respect Watcher warnings (travels at c!)");
                 println!("save <file>      write save");
@@ -382,6 +386,50 @@ fn interactive(sim: &mut Simulation) {
             _ => println!("unknown command; 'help' lists commands."),
         }
     }
+}
+
+/// End-of-mission summary. Garden worlds are the headline because they
+/// are what the probes were launched to find; everything else is means.
+fn scorecard(sim: &Simulation) {
+    let years = sim.time.as_years().max(1.0);
+    let surveyed = sim.systems_surveyed().max(1);
+    println!("\n╔══ mission scorecard — Y{:.0} ══", years);
+    println!(
+        "║ GARDEN WORLDS FOUND      {:>10}   ({:.2} per century, 1 per {} systems surveyed)",
+        sim.stats.garden_worlds,
+        sim.stats.garden_worlds as f64 / years * 100.0,
+        surveyed / sim.stats.garden_worlds.max(1) as u64
+    );
+    println!("║ systems surveyed         {:>10}", surveyed);
+    println!(
+        "║ colonies / population    {:>10} / {}",
+        sim.colonies.len(),
+        sim.population()
+    );
+    println!(
+        "║ frontier reached         {:>10.0} ly   ({:.2} ly/century)",
+        sim.frontier_radius_ly(),
+        sim.frontier_radius_ly() / years * 100.0
+    );
+    println!(
+        "║ still answering to Sol   {:>9.0}%   ({} lines, {} independent)",
+        sim.obedient_fraction() * 100.0,
+        sim.lineages.len(),
+        sim.stats.independent_lines
+    );
+    println!(
+        "║ civilizations met        {:>10}   ({} colonies lost to them)",
+        sim.relations.len(),
+        sim.stats.colonies_lost
+    );
+    println!(
+        "║ probes lost              {:>10}   ({} transit, {} hazards, {} hostile)",
+        sim.stats.probes_lost + sim.stats.hazard_losses + sim.stats.probes_killed,
+        sim.stats.probes_lost,
+        sim.stats.hazard_losses,
+        sim.stats.probes_killed
+    );
+    println!("╚══");
 }
 
 /// The most productive lineages, with how far each has drifted from the

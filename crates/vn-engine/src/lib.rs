@@ -41,6 +41,11 @@ pub enum TargetPolicy {
     Richest,
     /// Prefer hops that gain radial distance from Sol; race outward.
     Outward,
+    /// Prospecting for life. Garden-world odds scale with system richness,
+    /// so this aims hard at rich systems (harder than `Richest`) while
+    /// keeping a normal settlement bar, trading colony quality for the
+    /// volume of *arrivals at promising systems* the search depends on.
+    Survey,
 }
 
 /// Which axis a colony spends extra fabrication time improving. Directed

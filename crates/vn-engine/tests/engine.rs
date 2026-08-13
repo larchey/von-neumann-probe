@@ -83,6 +83,33 @@ fn policies_change_history() {
     assert!(fo > 10.0);
 }
 
+/// The prospecting doctrine should actually serve the mission it exists
+/// for — and pay for it in control, since chasing rich systems means
+/// longer hops and descendants past the secession range sooner.
+#[test]
+fn survey_doctrine_finds_more_life_but_loses_the_empire() {
+    let run = |policy| {
+        let mut sim = Simulation::new(SimConfig { policy, ..SimConfig::default() });
+        sim.run_until(SimTime::from_years(4000.0));
+        sim
+    };
+    let survey = run(TargetPolicy::Survey);
+    let nearest = run(TargetPolicy::Nearest);
+
+    assert!(
+        survey.stats.garden_worlds > nearest.stats.garden_worlds,
+        "survey doctrine should find more garden worlds: {} vs {}",
+        survey.stats.garden_worlds,
+        nearest.stats.garden_worlds
+    );
+    assert!(
+        survey.obedient_fraction() < nearest.obedient_fraction(),
+        "spreading fast should cost obedience: {:.2} vs {:.2}",
+        survey.obedient_fraction(),
+        nearest.obedient_fraction()
+    );
+}
+
 #[test]
 fn civs_are_deterministic_and_respect_sol_exclusion() {
     let f = CivField::new(42, 16.0);

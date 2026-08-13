@@ -46,6 +46,25 @@ Everything in the design flows from that:
 | Finite accessible material | Colonies saturate and shut down their replication lines |
 | No real-time control | You set doctrine (`--policy`, `--bold`); every colony executes it autonomously |
 
+## The mission has a point
+
+Rare garden worlds — living planets — are what the probes were launched
+to find, and they're the run's headline score. Every run ends with a
+scorecard; doctrine choice visibly moves it (4,000-year runs, same seed):
+
+| doctrine | garden worlds | frontier | still answering to Sol |
+|---|---|---|---|
+| `nearest` | 48 | 408 ly | 99% |
+| `richest` | 40 | 434 ly | 76% |
+| `outward` | 50 | 422 ly | 100% |
+| `survey`  | **61** | **489 ly** | 84% |
+
+`survey` chases the rich systems where life is likeliest, which means
+longer hops — so it finds the most worlds and expands fastest, and its
+descendants cross the secession range quickly enough to cost you a sixth
+of your empire's obedience. `richest` is the extreme of that trade: the
+best worlds-per-survey ratio and the worst control, holding only 76%.
+
 ## Your descendants stop being you
 
 Every replica mutates its parent's spec by ±3%. That sounds like flavor;
@@ -121,7 +140,7 @@ See [DESIGN.md](DESIGN.md) for gameplay direction and
 - [x] Survey anomalies: garden worlds, derelicts, precursor caches, hazards
 - [x] Deep-time cold-state compression (20k years in 13.9s / 244 MB)
 - [ ] Spec investment: steer evolution instead of only watching it
-- [ ] Garden-world doctrine (trade growth for discovery)
+- [x] Garden-world doctrine (`survey`) + end-of-run mission scorecard
 - [ ] Statistical aggregation for 10⁸+ probes
 - [ ] TUI frontend: live map, scrolling log, doctrine panel
 

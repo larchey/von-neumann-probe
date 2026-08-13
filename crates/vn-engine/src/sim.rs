@@ -299,6 +299,10 @@ impl Simulation {
     fn effective_min_richness(&self, policy: TargetPolicy) -> f64 {
         match policy {
             TargetPolicy::Richest => self.cfg.min_richness.max(0.7),
+            // Prospectors keep the normal bar: settling barren systems is
+            // a trap, since a 0.25-richness colony spends 16 years building
+            // a factory that yields two probes.
+            TargetPolicy::Survey => self.cfg.min_richness,
             _ => self.cfg.min_richness,
         }
     }
@@ -879,6 +883,9 @@ impl Simulation {
                     let radial = (s.x * s.x + s.y * s.y).sqrt();
                     d - 1.2 * (radial - from_radial)
                 }
+                // Aim at life-bearing odds: garden probability scales with
+                // richness, so weight it harder than `Richest` does.
+                TargetPolicy::Survey => d - 25.0 * s.richness,
             },
         );
         let Some(target) = target else {
@@ -983,6 +990,14 @@ impl Simulation {
             self.reports.iter().filter(|r| r.received_at <= now).collect();
         out.sort_by_key(|r| (r.received_at, r.occurred_at));
         out
+    }
+
+    /// Systems physically visited and assayed — colonies plus the ones
+    /// found wanting. The denominator of the mission's search.
+    pub fn systems_surveyed(&self) -> u64 {
+        self.colonies.len() as u64
+            + self.stats.colonies_lost as u64
+            + self.stats.systems_rejected as u64
     }
 
     /// Furthest colony from Sol, in light-years.
