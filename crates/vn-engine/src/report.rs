@@ -14,6 +14,16 @@ pub enum ReportKind {
     ProbeLaunched,
     ProbeLost,
     SaturationReached,
+    /// First physical evidence of another civilization.
+    FirstContact,
+    /// Salvaged technology from a dead civilization's ruins.
+    XenoSalvage,
+    /// A living civilization warns us off its space.
+    CivWarning,
+    /// A probe destroyed by a civilization's defenses.
+    ProbeKilled,
+    /// A colony destroyed by a civilization.
+    ColonyLost,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

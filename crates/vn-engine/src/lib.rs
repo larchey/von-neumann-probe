@@ -18,6 +18,7 @@
 //!   (delta-v), transit carries attrition risk, and each generation's spec
 //!   drifts slightly from its parent's.
 
+pub mod civs;
 pub mod events;
 pub mod galaxy;
 pub mod probe;

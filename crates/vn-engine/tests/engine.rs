@@ -1,3 +1,4 @@
+use vn_engine::civs::{CivField, SOL_EXCLUSION_LY};
 use vn_engine::galaxy::{Galaxy, StarId};
 use vn_engine::sim::Simulation;
 use vn_engine::time::SimTime;
@@ -60,6 +61,46 @@ fn light_lag_is_respected() {
     let now = SimTime::from_years(150.0);
     for r in sim.reports_received_by(now) {
         assert!(r.received_at <= now);
+    }
+}
+
+#[test]
+fn civs_are_deterministic_and_respect_sol_exclusion() {
+    let f = CivField::new(42, 16.0);
+    let mut found = 0;
+    for rx in -12..=12 {
+        for ry in -12..=12 {
+            if let Some(civ) = f.civ_in_region(rx, ry) {
+                found += 1;
+                let again = f.civ_in_region(rx, ry).unwrap();
+                assert_eq!(civ.x.to_bits(), again.x.to_bits());
+                assert_eq!(civ.disposition, again.disposition);
+                let dist = (civ.x * civ.x + civ.y * civ.y).sqrt();
+                assert!(dist >= SOL_EXCLUSION_LY, "civ too close to Sol: {dist:.0} ly");
+                // Growing borders must be monotonic in time.
+                assert!(civ.radius_at(1000.0) >= civ.radius_at(0.0));
+            }
+        }
+    }
+    assert!(found > 10, "expected a populated galaxy, found {found} civs in 625 regions");
+}
+
+#[test]
+fn first_contact_eventually_happens() {
+    // Expansion reaches well past the exclusion zone by year 4000; with
+    // ~18% of regions inhabited we must have met someone by then.
+    let mut sim = Simulation::new(SimConfig::default());
+    sim.run_until(SimTime::from_years(4000.0));
+    assert!(
+        !sim.relations.is_empty(),
+        "no civilizations met after 4000 years and {:.0} ly of frontier",
+        sim.frontier_radius_ly()
+    );
+    // Contact must not predate physical reach of the exclusion zone:
+    // nothing can be met before a probe could have flown there.
+    for rel in sim.relations.values() {
+        let earliest = SOL_EXCLUSION_LY / 0.5; // generous: 0.5c bound
+        assert!(rel.met_at.as_years() > earliest * 0.2);
     }
 }
 

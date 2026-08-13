@@ -23,6 +23,8 @@ pub enum Event {
     ReplicaComplete { star: StarId },
     /// A probe was destroyed in transit (dust impact, systems failure).
     ProbeLost { probe: ProbeId, target: StarId },
+    /// A civilization's interceptors reach and destroy one of our colonies.
+    CivStrike { star: StarId, civ: (i32, i32) },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

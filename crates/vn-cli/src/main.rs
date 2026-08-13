@@ -55,15 +55,15 @@ fn main() {
     let mut sim = Simulation::new(cfg);
 
     println!(
-        "{:>6}  {:>7}  {:>8}  {:>9}  {:>9}  {:>7}  {:>8}",
-        "year", "probes", "transit", "colonies", "frontier", "max gen", "lost"
+        "{:>6}  {:>7}  {:>8}  {:>9}  {:>9}  {:>7}  {:>6}  {:>6}  {:>7}",
+        "year", "probes", "transit", "colonies", "frontier", "max gen", "lost", "killed", "civs"
     );
     let mut year = 0.0;
     while year < args.years {
         year = (year + args.step).min(args.years);
         sim.run_until(SimTime::from_years(year));
         println!(
-            "{:>6.0}  {:>7}  {:>8}  {:>9}  {:>7.1}ly  {:>7}  {:>8}",
+            "{:>6.0}  {:>7}  {:>8}  {:>9}  {:>7.1}ly  {:>7}  {:>6}  {:>6}  {:>7}",
             year,
             sim.probes.len(),
             sim.probes_in_transit(),
@@ -71,6 +71,8 @@ fn main() {
             sim.frontier_radius_ly(),
             sim.max_generation(),
             sim.stats.probes_lost,
+            sim.stats.probes_killed,
+            sim.relations.len(),
         );
     }
 
@@ -90,8 +92,30 @@ fn main() {
             r.text
         );
     }
+    if !sim.relations.is_empty() {
+        println!("\n─── known civilizations ───");
+        for (key, rel) in &sim.relations {
+            if let Some(civ) = sim.civ_field.civ_by_key(*key) {
+                let dist = (civ.x * civ.x + civ.y * civ.y).sqrt();
+                println!(
+                    "{:<32} {:>6.0} ly out | met Y{:<7.1} | irritation {} | colonies lost to them: {}",
+                    civ.name(),
+                    dist,
+                    rel.met_at.as_years(),
+                    rel.irritation,
+                    rel.colonies_lost_to
+                );
+            }
+        }
+    }
+
     println!(
-        "\n{} events handled | {} probes built | {} lost | digest {:016x}",
-        sim.stats.events_handled, sim.stats.probes_built, sim.stats.probes_lost, sim.digest()
+        "\n{} events | {} probes built | {} lost in transit | {} killed by civs | {} colonies destroyed | digest {:016x}",
+        sim.stats.events_handled,
+        sim.stats.probes_built,
+        sim.stats.probes_lost,
+        sim.stats.probes_killed,
+        sim.stats.colonies_lost,
+        sim.digest()
     );
 }

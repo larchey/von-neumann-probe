@@ -6,6 +6,7 @@
 //! (a von Neumann probe must operate beyond command lag) and the engine's
 //! scaling model.
 
+use crate::civs::{CivField, CivKey, Disposition};
 use crate::events::{Event, EventQueue};
 use crate::galaxy::{Galaxy, Star, StarId};
 use crate::probe::{Probe, ProbeId, ProbeSpec, ProbeState};
@@ -35,7 +36,25 @@ pub struct SimStats {
     pub probes_lost: u32,
     pub systems_rejected: u32,
     pub events_handled: u64,
+    /// Probes destroyed by civilizations' defenses.
+    pub probes_killed: u32,
+    /// Colonies destroyed by civilizations.
+    pub colonies_lost: u32,
 }
+
+/// Our accumulated relationship with a civilization we've met.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub struct CivRelation {
+    pub met_at: SimTime,
+    /// Watcher patience burned by our colonies in their space.
+    pub irritation: u32,
+    pub colonies_lost_to: u32,
+}
+
+/// Watcher civs issue a warning at this irritation level...
+const WATCHER_WARN_AT: u32 = 3;
+/// ...and begin destroying new colonies at this one.
+pub const WATCHER_STRIKE_AT: u32 = 5;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Simulation {
@@ -51,6 +70,9 @@ pub struct Simulation {
     /// Stars already targeted or settled — prevents two colonies racing
     /// for the same system. Released if the inbound probe is lost.
     claimed: BTreeSet<StarId>,
+    pub civ_field: CivField,
+    /// Civilizations we've physically encountered.
+    pub relations: BTreeMap<CivKey, CivRelation>,
     pub reports: Vec<Report>,
     pub stats: SimStats,
 }
@@ -60,9 +82,12 @@ impl Simulation {
     /// factory (the Earth-launched mission succeeded before play begins).
     pub fn new(cfg: SimConfig) -> Self {
         let galaxy = Galaxy::new(cfg.seed, cfg.cell_size_ly);
+        let civ_field = CivField::new(cfg.seed, cfg.cell_size_ly);
         let rng = SplitMix64::new(cfg.seed).fork(0x5157);
         let mut sim = Self {
             galaxy,
+            civ_field,
+            relations: BTreeMap::new(),
             time: SimTime::ZERO,
             queue: EventQueue::default(),
             rng,
@@ -118,6 +143,7 @@ impl Simulation {
             Event::FactoryOnline { star } => self.on_factory_online(star),
             Event::ReplicaComplete { star } => self.on_replica_complete(star),
             Event::ProbeLost { probe, target } => self.on_probe_lost(probe, target),
+            Event::CivStrike { star, civ } => self.on_civ_strike(star, civ),
         }
     }
 
@@ -136,6 +162,9 @@ impl Simulation {
 
     fn on_survey_complete(&mut self, probe_id: ProbeId, star_id: StarId) {
         let star = self.galaxy.star(star_id);
+        if self.civ_encounter(probe_id, &star) {
+            return; // probe was destroyed or expelled; encounter handled it
+        }
         if star.richness >= self.cfg.min_richness {
             // Worth settling: build the autofactory. Richer systems
             // bootstrap faster.
@@ -176,6 +205,165 @@ impl Simulation {
             None => return,
         };
         self.found_colony(star_id, founder, self.time);
+        self.civ_reaction_to_colony(star_id);
+    }
+
+    /// A probe has finished surveying a system inside (or salvageable from)
+    /// another civilization's space. Returns true if the encounter ended
+    /// the probe's business here (destroyed or expelled).
+    fn civ_encounter(&mut self, probe_id: ProbeId, star: &Star) -> bool {
+        let years = self.time.as_years();
+        let Some(civ) = self.civ_field.territory_at(star.x, star.y, years) else {
+            return false;
+        };
+        if !self.relations.contains_key(&civ.key) {
+            self.relations.insert(
+                civ.key,
+                CivRelation { met_at: self.time, irritation: 0, colonies_lost_to: 0 },
+            );
+            self.emit(star, ReportKind::FirstContact, format!(
+                "FIRST CONTACT: probe {} has entered the space of {} at {}. \
+                 Territory radius ~{:.0} ly.",
+                probe_id.0, civ.name(), self.galaxy.name(star.id), civ.radius_at(years)
+            ));
+        }
+        match civ.disposition {
+            Disposition::Extinct => {
+                // Dead worlds are safe — and their ruins improve us.
+                let mut srng = self
+                    .rng
+                    .fork(crate::rng::hash_n(&[star.id.key(), probe_id.0, 0x5A]));
+                let mut salvaged: Option<(&str, f64)> = None;
+                if let Some(probe) = self.probes.get_mut(&probe_id) {
+                    let gain = 1.0 + srng.range_f64(0.03, 0.10);
+                    let which = srng.next_u64() % 3;
+                    let s = &mut probe.spec;
+                    let desc = match which {
+                        0 => {
+                            s.cruise_speed_c = (s.cruise_speed_c * gain).min(0.5);
+                            "propulsion"
+                        }
+                        1 => {
+                            s.fabrication = (s.fabrication * gain).min(4.0);
+                            "fabrication"
+                        }
+                        _ => {
+                            s.reliability = (s.reliability * gain).min(4.0);
+                            "hull shielding"
+                        }
+                    };
+                    salvaged = Some((desc, gain));
+                }
+                if let Some((desc, gain)) = salvaged {
+                    self.emit(star, ReportKind::XenoSalvage, format!(
+                        "Ruins of {} catalogued at {}. Salvaged {} improvements (+{:.0}%) \
+                         folded into the lineage template.",
+                        civ.name(), self.galaxy.name(star.id), desc, (gain - 1.0) * 100.0
+                    ));
+                }
+                false // proceed with normal colonize/reject flow
+            }
+            Disposition::Watcher => false, // tolerated... for now (see colonize)
+            Disposition::Territorial | Disposition::Expansionist => {
+                let kill_p = match civ.disposition {
+                    Disposition::Territorial => 0.7,
+                    _ => 0.3,
+                };
+                let mut erng = self
+                    .rng
+                    .fork(crate::rng::hash_n(&[star.id.key(), probe_id.0, 0xC1]));
+                if erng.next_f64() < kill_p {
+                    self.stats.probes_killed += 1;
+                    self.claimed.remove(&star.id);
+                    self.probes.remove(&probe_id);
+                    self.emit(star, ReportKind::ProbeKilled, format!(
+                        "Probe {} destroyed by pickets of {} at {}. No survivors of the encounter.",
+                        probe_id.0, civ.name(), self.galaxy.name(star.id)
+                    ));
+                } else {
+                    self.emit(star, ReportKind::CivWarning, format!(
+                        "Probe {} expelled from {} by {}. Withdrawing.",
+                        probe_id.0, self.galaxy.name(star.id), civ.name()
+                    ));
+                    if let Some(p) = self.probes.get_mut(&probe_id) {
+                        p.rejected.push(star.id);
+                    }
+                    self.claimed.remove(&star.id);
+                    self.launch_from(star.id, probe_id);
+                }
+                true
+            }
+        }
+    }
+
+    /// Living civilizations react to a new colony: Watchers lose patience;
+    /// Expansionists will eventually overrun anything in their growth path.
+    fn civ_reaction_to_colony(&mut self, star_id: StarId) {
+        let star = self.galaxy.star(star_id);
+        let years = self.time.as_years();
+        if let Some(civ) = self.civ_field.territory_at(star.x, star.y, years) {
+            if civ.disposition == Disposition::Watcher {
+                if let Some(rel) = self.relations.get_mut(&civ.key) {
+                    rel.irritation += 1;
+                    let irritation = rel.irritation;
+                    if irritation == WATCHER_WARN_AT {
+                        self.emit(&star, ReportKind::CivWarning, format!(
+                            "{} have issued a formal warning: cease expansion into their space.",
+                            civ.name()
+                        ));
+                    } else if irritation >= WATCHER_STRIKE_AT {
+                        let eta_years = civ.dist_to(star.x, star.y) / civ.response_speed_c;
+                        self.queue.schedule(
+                            self.time.plus_years(eta_years),
+                            Event::CivStrike { star: star_id, civ: civ.key },
+                        );
+                    }
+                }
+            }
+        }
+        // Any expansionist nearby will eventually swallow this system;
+        // schedule the overrun for when its border arrives (closed-form).
+        for civ in self.civ_field.civs_near(star.x, star.y, 400.0, years) {
+            if civ.growth_ly_per_year <= 0.0 {
+                continue;
+            }
+            let dist = civ.dist_to(star.x, star.y);
+            let gap = dist - civ.radius_at(years);
+            if gap > 0.0 {
+                let arrival_years = years + gap / civ.growth_ly_per_year;
+                self.queue.schedule(
+                    SimTime::from_years(arrival_years),
+                    Event::CivStrike { star: star_id, civ: civ.key },
+                );
+            }
+        }
+    }
+
+    fn on_civ_strike(&mut self, star_id: StarId, civ_key: CivKey) {
+        let Some(colony) = self.colonies.remove(&star_id) else {
+            return; // already gone (e.g. double-scheduled overrun)
+        };
+        let star = self.galaxy.star(star_id);
+        self.stats.colonies_lost += 1;
+        if let Some(rel) = self.relations.get_mut(&civ_key) {
+            rel.colonies_lost_to += 1;
+        }
+        // The settled founder dies with the colony; dormant descendants in
+        // the system go silent (kept as record, no longer productive).
+        if let Some(p) = self.probes.get(&colony.founder) {
+            if p.state == (ProbeState::Settled { star: star_id }) {
+                self.probes.remove(&colony.founder);
+            }
+        }
+        let civ_name = self
+            .civ_field
+            .civ_by_key(civ_key)
+            .map(|c| c.name())
+            .unwrap_or_else(|| "an unknown power".to_string());
+        self.emit(&star, ReportKind::ColonyLost, format!(
+            "Colony at {} destroyed by {}. {} probes were built there. The system falls silent.",
+            self.galaxy.name(star_id), civ_name, colony.probes_built
+        ));
     }
 
     /// Shared by bootstrap (Sol) and FactoryOnline: mark the colony live
@@ -269,6 +457,22 @@ impl Simulation {
     /// there. If nothing is reachable, the probe goes dormant where it is.
     fn launch_from(&mut self, from_id: StarId, probe_id: ProbeId) {
         let from = self.galaxy.star(from_id);
+        let years = self.time.as_years();
+        // Route around space we've *learned* is hostile. Unknown civs can't
+        // be avoided — first contact is paid for in probes.
+        let hostile: Vec<_> = self
+            .civ_field
+            .civs_near(from.x, from.y, self.cfg.max_hop_ly, years)
+            .into_iter()
+            .filter(|c| match self.relations.get(&c.key) {
+                None => false,
+                Some(rel) => match c.disposition {
+                    Disposition::Territorial | Disposition::Expansionist => true,
+                    Disposition::Watcher => rel.irritation >= WATCHER_STRIKE_AT,
+                    Disposition::Extinct => false,
+                },
+            })
+            .collect();
         let (claimed, probes) = (&self.claimed, &self.probes);
         let rejected: &[StarId] = probes
             .get(&probe_id)
@@ -278,7 +482,11 @@ impl Simulation {
             &from,
             self.cfg.max_hop_ly,
             self.cfg.search_rings,
-            |s| !claimed.contains(&s.id) && !rejected.contains(&s.id),
+            |s| {
+                !claimed.contains(&s.id)
+                    && !rejected.contains(&s.id)
+                    && !hostile.iter().any(|c| c.contains(s.x, s.y, years))
+            },
         );
         let Some(target) = target else {
             // Frontier dead end: stay dormant at the current system.
@@ -384,6 +592,16 @@ impl Simulation {
         }
         for id in &self.claimed {
             acc = hash_n(&[acc, id.key()]);
+        }
+        for (key, rel) in &self.relations {
+            acc = hash_n(&[
+                acc,
+                key.0 as u32 as u64,
+                key.1 as u32 as u64,
+                rel.met_at.0,
+                rel.irritation as u64,
+                rel.colonies_lost_to as u64,
+            ]);
         }
         acc
     }
