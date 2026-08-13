@@ -74,6 +74,21 @@ descendants cross the secession range quickly enough to cost you a sixth
 of your empire's obedience. `richest` is the extreme of that trade: the
 best worlds-per-survey ratio and the worst control, holding only 76%.
 
+**A discovery only counts if the finder still talks to you.** Seceded
+lines go dark — they keep exploring and building, but Sol never hears
+about any of it. Run the same two doctrines four times longer and the
+ranking inverts:
+
+| doctrine | worlds *found* | worlds *reported* | still answering |
+|---|---|---|---|
+| `nearest` @ Y8000 | 303 | **184** | 53% |
+| `survey` @ Y8000 | **459** | 132 | 27% |
+
+Survey finds half again as many living worlds and tells you about fewer
+of them. The doctrine that searches hardest wins the early game and loses
+the late one, by scattering its own probes past the range where they'd
+still report.
+
 ## Your descendants stop being you
 
 Every replica mutates its parent's spec by ±3%. That sounds like flavor;
