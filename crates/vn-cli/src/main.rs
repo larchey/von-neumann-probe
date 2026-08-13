@@ -190,7 +190,13 @@ fn main() {
         }
     }
 
-    println!("\nmean colony richness: {:.3}", sim.mean_colony_richness());
+    println!(
+        "\ngarden worlds found: {} | anomalies salvaged: {} | lost to hazards: {} | mean colony richness: {:.3}",
+        sim.stats.garden_worlds,
+        sim.stats.anomalies_salvaged,
+        sim.stats.hazard_losses,
+        sim.mean_colony_richness()
+    );
     println!(
         "{} events | {} probes built | {} lost in transit | {} killed by civs | {} colonies destroyed | digest {:016x}",
         sim.stats.events_handled,
@@ -393,6 +399,12 @@ fn status(sim: &Simulation) {
         sim.stats.probes_lost,
         sim.stats.probes_killed,
         sim.relations.len()
+    );
+    println!(
+        "          garden worlds found: {} | anomalies salvaged: {} | {} lineages",
+        sim.stats.garden_worlds,
+        sim.stats.anomalies_salvaged,
+        sim.lineages.len()
     );
 }
 

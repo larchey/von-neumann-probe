@@ -29,6 +29,12 @@ pub enum ReportKind {
     DoctrineChange,
     /// A descendant line has drifted far enough to name itself.
     LineageFork,
+    /// A living world — the reason the probes were built.
+    GardenWorld,
+    /// A derelict or precursor cache found and salvaged.
+    AnomalyFound,
+    /// A probe destroyed by a natural hazard.
+    HazardLoss,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

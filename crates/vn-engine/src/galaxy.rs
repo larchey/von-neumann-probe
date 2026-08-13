@@ -57,6 +57,27 @@ pub struct Galaxy {
 const SALT_COUNT: u64 = 0xC0;
 const SALT_POS: u64 = 0xF0;
 const SALT_RICH: u64 = 0x51;
+const SALT_ANOM: u64 = 0xA0;
+
+/// What a survey turns up beyond the ore assay. Rare, hashed per star, so
+/// the galaxy holds its secrets until someone physically arrives.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Anomaly {
+    /// A living world. The reason the probes were built.
+    GardenWorld,
+    /// A dead ship or station: salvage improves the finder's design.
+    Derelict,
+    /// Someone else's automated foundry, still running. Big fabrication win.
+    PrecursorCache,
+    /// Pulsar sweep, radiation belt, unstable binary. Kills probes.
+    Hazard,
+}
+
+/// Per-star anomaly probabilities. Everything else is empty sky.
+const P_GARDEN: f64 = 0.012;
+const P_DERELICT: f64 = 0.020;
+const P_CACHE: f64 = 0.008;
+const P_HAZARD: f64 = 0.022;
 
 impl Galaxy {
     pub fn new(seed: u64, cell_size_ly: f64) -> Self {
@@ -90,6 +111,29 @@ impl Galaxy {
         let u = unit_f64(hr);
         let richness = 0.2 + 1.3 * (u * u.sqrt());
         Star { id, x, y, richness }
+    }
+
+    /// What waits at this star, if anything. Garden worlds skew toward
+    /// richer systems — the same conditions that make a system worth
+    /// settling make it worth living on.
+    pub fn anomaly(&self, id: StarId) -> Option<Anomaly> {
+        if id == StarId::SOL {
+            return None;
+        }
+        let h = hash_n(&[self.seed, id.key(), SALT_ANOM]);
+        let roll = unit_f64(h);
+        let garden = P_GARDEN * (0.4 + self.star(id).richness);
+        if roll < garden {
+            Some(Anomaly::GardenWorld)
+        } else if roll < garden + P_DERELICT {
+            Some(Anomaly::Derelict)
+        } else if roll < garden + P_DERELICT + P_CACHE {
+            Some(Anomaly::PrecursorCache)
+        } else if roll < garden + P_DERELICT + P_CACHE + P_HAZARD {
+            Some(Anomaly::Hazard)
+        } else {
+            None
+        }
     }
 
     /// Display name for a star. Allocates; call only for UI/reports.

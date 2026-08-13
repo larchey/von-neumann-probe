@@ -8,7 +8,7 @@
 
 use crate::civs::{CivField, CivKey, Disposition};
 use crate::events::{Event, EventQueue};
-use crate::galaxy::{Galaxy, Star, StarId};
+use crate::galaxy::{Anomaly, Galaxy, Star, StarId};
 use crate::lineage::{lineage_name, Lineage, LineageId, FORK_THRESHOLD};
 use crate::probe::{Probe, ProbeId, ProbeSpec, ProbeState};
 use crate::report::{Report, ReportKind};
@@ -52,6 +52,12 @@ pub struct SimStats {
     /// Probes powered down at systems that never became colonies
     /// (barren dead-ends); archived out of the hot map.
     pub drifters: u32,
+    /// Living worlds found — the mission's actual scoreboard.
+    pub garden_worlds: u32,
+    /// Derelicts and precursor caches salvaged.
+    pub anomalies_salvaged: u32,
+    /// Probes lost to natural hazards at survey.
+    pub hazard_losses: u32,
 }
 
 /// Our accumulated relationship with a civilization we've met.
@@ -261,6 +267,9 @@ impl Simulation {
         if self.civ_encounter(probe_id, &star) {
             return; // probe was destroyed or expelled; encounter handled it
         }
+        if self.survey_anomaly(probe_id, &star) {
+            return; // hazard destroyed the probe
+        }
         let local_policy = self.doctrine_at(star.x, star.y).policy;
         if star.richness >= self.effective_min_richness(local_policy) {
             // Worth settling: build the autofactory. Richer systems
@@ -294,6 +303,98 @@ impl Simulation {
             }
             self.claimed.remove(&star_id);
             self.launch_from(star_id, probe_id);
+        }
+    }
+
+    /// Resolve whatever the survey turned up beyond the ore assay.
+    /// Returns true if the probe did not survive it.
+    fn survey_anomaly(&mut self, probe_id: ProbeId, star: &Star) -> bool {
+        let Some(anomaly) = self.galaxy.anomaly(star.id) else {
+            return false;
+        };
+        let name = self.galaxy.name(star.id);
+        match anomaly {
+            Anomaly::GardenWorld => {
+                self.stats.garden_worlds += 1;
+                let line = self
+                    .probes
+                    .get(&probe_id)
+                    .and_then(|p| self.lineages.get(&p.lineage))
+                    .map(|l| l.name.clone())
+                    .unwrap_or_default();
+                self.emit(star, ReportKind::GardenWorld, format!(
+                    "GARDEN WORLD at {name}. Oxygen, liquid water, a biosphere. \
+                     Found by the {line} line, {:.0} ly from Sol. This is what we were built for.",
+                    (star.x * star.x + star.y * star.y).sqrt()
+                ));
+                false
+            }
+            Anomaly::Derelict | Anomaly::PrecursorCache => {
+                self.stats.anomalies_salvaged += 1;
+                let mut arng = self
+                    .rng
+                    .fork(crate::rng::hash_n(&[star.id.key(), probe_id.0, 0xA7]));
+                let (gain, what) = match anomaly {
+                    Anomaly::PrecursorCache => (1.0 + arng.range_f64(0.10, 0.25), "a precursor foundry, still running"),
+                    _ => (1.0 + arng.range_f64(0.04, 0.12), "a derelict hulk"),
+                };
+                let which = arng.next_u64() % 3;
+                let desc = if let Some(probe) = self.probes.get_mut(&probe_id) {
+                    let s = &mut probe.spec;
+                    match which {
+                        0 => {
+                            s.cruise_speed_c = (s.cruise_speed_c * gain).min(0.5);
+                            "drive"
+                        }
+                        1 => {
+                            s.fabrication = (s.fabrication * gain).min(4.0);
+                            "fabrication"
+                        }
+                        _ => {
+                            s.reliability = (s.reliability * gain).min(4.0);
+                            "structural"
+                        }
+                    }
+                } else {
+                    return false;
+                };
+                self.emit(star, ReportKind::AnomalyFound, format!(
+                    "Survey of {name} found {what}. Reverse-engineered {desc} gains \
+                     (+{:.0}%) into the local template.",
+                    (gain - 1.0) * 100.0
+                ));
+                false
+            }
+            Anomaly::Hazard => {
+                // Reliability is exactly what buys survival here.
+                let reliability = self
+                    .probes
+                    .get(&probe_id)
+                    .map(|p| p.spec.reliability)
+                    .unwrap_or(1.0);
+                let p_death = (0.55 / reliability).clamp(0.05, 0.95);
+                let mut hrng = self
+                    .rng
+                    .fork(crate::rng::hash_n(&[star.id.key(), probe_id.0, 0x4D]));
+                if hrng.next_f64() < p_death {
+                    self.stats.hazard_losses += 1;
+                    self.claimed.remove(&star.id);
+                    self.probes.remove(&probe_id);
+                    self.emit(star, ReportKind::HazardLoss, format!(
+                        "Probe {} lost at {name}: the system is a radiation trap. \
+                         Telemetry ended mid-survey.",
+                        probe_id.0
+                    ));
+                    true
+                } else {
+                    self.emit(star, ReportKind::AnomalyFound, format!(
+                        "Probe {} survived the radiation environment at {name} \
+                         (reliability {reliability:.2}). Hull degraded; survey continues.",
+                        probe_id.0
+                    ));
+                    false
+                }
+            }
         }
     }
 

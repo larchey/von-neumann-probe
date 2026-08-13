@@ -124,6 +124,44 @@ fn first_contact_eventually_happens() {
 }
 
 #[test]
+fn anomalies_are_rare_stable_and_reachable() {
+    let g = Galaxy::new(42, 16.0);
+    let mut counts = std::collections::BTreeMap::new();
+    let mut total = 0;
+    for cx in -20..20 {
+        for cy in -20..20 {
+            for idx in 0..g.star_count(cx, cy) {
+                let id = StarId { cx, cy, idx };
+                total += 1;
+                if let Some(a) = g.anomaly(id) {
+                    *counts.entry(format!("{a:?}")).or_insert(0) += 1;
+                    assert_eq!(Some(a), g.anomaly(id), "anomalies must be stable");
+                }
+            }
+        }
+    }
+    let anomalous: i32 = counts.values().sum();
+    // Rare enough to be an event, common enough to matter.
+    assert!(
+        (anomalous as f64 / total as f64) < 0.12,
+        "anomalies should be rare, got {anomalous}/{total}"
+    );
+    assert_eq!(counts.len(), 4, "all four anomaly kinds should occur: {counts:?}");
+    assert!(counts["GardenWorld"] > 0);
+}
+
+#[test]
+fn garden_worlds_get_found_by_expansion() {
+    let mut sim = Simulation::new(SimConfig::default());
+    sim.run_until(SimTime::from_years(3000.0));
+    assert!(
+        sim.stats.garden_worlds > 0,
+        "a 3000-year expansion should turn up living worlds"
+    );
+    assert!(sim.stats.anomalies_salvaged > 0);
+}
+
+#[test]
 fn lineages_fork_as_drift_accumulates() {
     let mut sim = Simulation::new(SimConfig::default());
     sim.run_until(SimTime::from_years(3000.0));
