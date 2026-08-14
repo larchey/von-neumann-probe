@@ -267,10 +267,16 @@ fn interactive(sim: &mut Simulation) {
         let parts: Vec<&str> = line.split_whitespace().collect();
         match parts.as_slice() {
             ["run", years] => {
+                // A negative span would saturate to zero in the cast to
+                // integer seconds and silently do nothing.
                 let years: f64 = match years.parse() {
-                    Ok(y) => y,
+                    Ok(y) if y > 0.0 => y,
+                    Ok(_) => {
+                        println!("time only runs forwards here. try: run 500");
+                        continue;
+                    }
                     Err(_) => {
-                        println!("usage: run <years>");
+                        println!("usage: run <years>   (e.g. run 500)");
                         continue;
                     }
                 };
@@ -303,6 +309,7 @@ fn interactive(sim: &mut Simulation) {
                 let limit: f64 = parts
                     .get(1)
                     .and_then(|s| s.parse().ok())
+                    .filter(|y: &f64| *y > 0.0)
                     .unwrap_or(3000.0);
                 let deadline = sim.time.plus_years(limit);
                 let mut reported = false;
@@ -379,7 +386,10 @@ fn interactive(sim: &mut Simulation) {
                 }
             }
             ["log", n] => {
-                let n: usize = n.parse().unwrap_or(20);
+                let Ok(n) = n.parse::<usize>() else {
+                    println!("usage: log <count>   (e.g. log 20)");
+                    continue;
+                };
                 for r in sim.reports_received_by(sim.time).into_iter().rev().take(n).rev() {
                     println!(
                         "[recv Y{:>7.1} | {:>5.1} ly] {}",
@@ -510,6 +520,17 @@ fn timeline(sim: &Simulation) {
     }
 }
 
+/// "1 probe" / "2 probes" — these counts legitimately sit at 1 for the
+/// opening centuries of every game, which is when the player is reading
+/// most closely.
+fn plural(n: u64, one: &str, many: &str) -> String {
+    if n == 1 {
+        format!("{n} {one}")
+    } else {
+        format!("{n} {many}")
+    }
+}
+
 fn truncate(s: &str, max: usize) -> String {
     if s.chars().count() <= max {
         return s.to_string();
@@ -582,11 +603,16 @@ fn show_lineages(sim: &Simulation, n: usize) {
             .cmp(&a.probes_built)
             .then(a.id.0.cmp(&b.id.0))
     });
-    println!(
-        "{} lineages descended from the seed probe; top {}:",
-        sim.lineages.len(),
-        n.min(lines.len())
-    );
+    let shown = n.min(lines.len());
+    if shown == sim.lineages.len() {
+        println!("{} descended from the seed probe:", plural(shown as u64, "line", "lines"));
+    } else {
+        println!(
+            "{} descended from the seed probe; showing the {} largest:",
+            plural(sim.lineages.len() as u64, "line", "lines"),
+            shown
+        );
+    }
     println!(
         "{:<12} {:<12} {:>6} {:>8} {:>9} {:>7} {:>6} {:>6}",
         "line", "from", "born", "probes", "colonies", "speed", "fab", "rel"
@@ -622,22 +648,22 @@ fn show_lineages(sim: &Simulation, n: usize) {
 
 fn status(sim: &Simulation) {
     println!(
-        "Y{:>7.1} | {} probes ({} in transit) | {} colonies | frontier {:.1} ly | gen {} | {} lost, {} killed | {} civs known",
+        "Y{:>7.1} | {} ({} in transit) | {} | frontier {:.1} ly | gen {} | {} lost, {} killed | {} known",
         sim.time.as_years(),
-        sim.population(),
+        plural(sim.population(), "probe", "probes"),
         sim.probes_in_transit(),
-        sim.colonies.len(),
+        plural(sim.colonies.len() as u64, "colony", "colonies"),
         sim.frontier_radius_ly(),
         sim.max_generation(),
         sim.stats.probes_lost,
         sim.stats.probes_killed,
-        sim.relations.len()
+        plural(sim.relations.len() as u64, "civilization", "civilizations"),
     );
     println!(
-        "          garden worlds found: {} | anomalies salvaged: {} | {} lineages ({} independent, {:.0}% of colonies still answer to Sol)",
+        "          garden worlds found: {} | anomalies salvaged: {} | {} ({} independent, {:.0}% of colonies still answer to Sol)",
         sim.stats.garden_worlds,
         sim.stats.anomalies_salvaged,
-        sim.lineages.len(),
+        plural(sim.lineages.len() as u64, "lineage", "lineages"),
         sim.stats.independent_lines,
         sim.obedient_fraction() * 100.0
     );
